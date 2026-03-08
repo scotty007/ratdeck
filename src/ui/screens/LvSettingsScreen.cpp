@@ -512,7 +512,7 @@ void LvSettingsScreen::buildItems() {
             HTTPClient http;
             http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
             http.setTimeout(8000);
-            http.begin("https://api.github.com/repos/defidude/Ratdeck/releases/latest");
+            http.begin("https://api.github.com/repos/ratspeak/ratdeck/releases/latest");
             http.addHeader("Accept", "application/vnd.github.v3+json");
             int httpCode = http.GET();
 

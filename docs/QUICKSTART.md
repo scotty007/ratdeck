@@ -13,7 +13,7 @@
 pip install platformio
 
 # Clone and build
-git clone https://github.com/defidude/Ratdeck.git
+git clone https://github.com/ratspeak/ratdeck.git
 cd Ratdeck
 python3 -m platformio run
 

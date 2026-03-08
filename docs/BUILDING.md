@@ -13,7 +13,7 @@ No USB drivers needed on macOS or Linux — the ESP32-S3's USB-Serial/JTAG inter
 ## Build
 
 ```bash
-git clone https://github.com/defidude/Ratdeck.git
+git clone https://github.com/ratspeak/ratdeck.git
 cd Ratdeck
 
 python3 -m platformio run
@@ -137,12 +137,12 @@ GitHub Actions workflow (`.github/workflows/build.yml`):
 ```bash
 # 1. Bump version in src/config/Config.h (all 4 defines)
 # 2. Commit and push
-git add -A && git commit -m "v1.4.2: description"
+git add -A && git commit -m "v1.5.2: description"
 git push origin main
 
 # 3. Tag and push tag
-git tag v1.4.2
-git push origin v1.4.2
+git tag v1.5.2
+git push origin v1.5.2
 # CI creates GitHub release automatically
 ```
 
