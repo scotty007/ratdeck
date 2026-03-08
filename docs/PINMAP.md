@@ -1,100 +1,137 @@
-# Ratputer — Hardware Pin Map
+# Ratdeck — Hardware Pin Map
 
-M5Stack Cardputer Adv (ESP32-S3) + Cap LoRa-1262
-
-All pin definitions are in `src/config/BoardConfig.h`.
+LilyGo T-Deck Plus (ESP32-S3) — all pin definitions in `src/config/BoardConfig.h`.
 
 ## Bus Overview
 
 ```
 ESP32-S3
-   ├── HSPI (shared bus) ──┬── SX1262 LoRa (CS=5)
-   │    SCK=40              └── SD Card (CS=12)
-   │    MISO=39
-   │    MOSI=14
+   ├── SPI2_HOST (shared bus) ──┬── ST7789V Display (CS=12, DC=11)
+   │    SCK=40                   ├── SX1262 LoRa (CS=9)
+   │    MISO=38                  └── SD Card (CS=39)
+   │    MOSI=41
    │
-   ├── I2C ── TCA8418 Keyboard (SDA=8, SCL=9, INT=11)
+   ├── I2C (SDA=18, SCL=8) ────┬── Keyboard ESP32-C3 (0x55)
+   │                            └── GT911 Touch (0x5D)
    │
-   ├── UART (reserved) ── GNSS module (RX=15, TX=13)
+   ├── GPIO ── Trackball (UP=3, DOWN=2, LEFT=1, RIGHT=15, CLICK=0)
    │
-   ├── USB-Serial/JTAG ── USB-C port (firmware + debug)
+   ├── UART ── UBlox MIA-M10Q GPS (TX=43, RX=44)
    │
-   └── M5Unified managed ──┬── ST7789V2 Display (SPI)
-                            ├── ES8311 Audio Codec (I2S)
-                            └── Battery ADC
+   ├── I2S ── ES7210 Audio Codec
+   │
+   └── USB-C ── USB-Serial/JTAG
 ```
 
-## SX1262 LoRa Radio
-
-Uses **HSPI** (custom SPI bus, not the default VSPI):
+## Power Control
 
 | Signal | GPIO | Notes |
 |--------|------|-------|
-| SCK | 40 | SPI clock |
-| MISO | 39 | SPI data out (radio → ESP) |
-| MOSI | 14 | SPI data in (ESP → radio) |
-| CS | 5 | Chip select (active low) |
-| IRQ | 4 | DIO1 interrupt (falling edge) |
-| RST | 3 | Reset (active low, 100μs pulse) |
-| BUSY | 6 | Poll before SPI transactions |
+| BOARD_POWER_PIN | 10 | **Must be set HIGH at boot** to enable all peripherals |
+
+## SX1262 LoRa Radio
+
+Shares SPI2_HOST bus with display and SD card:
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| CS | 9 | Chip select (active low) |
+| IRQ | 45 | DIO1 interrupt |
+| RST | 17 | Reset (active low) |
+| BUSY | 13 | Poll before SPI transactions |
 | RXEN | -1 | Not connected (DIO2 used as RF switch) |
 | TXEN | -1 | Not connected |
 
 **Radio configuration:**
-- TCXO voltage: 3.0V (`MODE_TCXO_3_0V_6X` = 0x06)
+- TCXO voltage: 1.8V (`MODE_TCXO_1_8V_6X` = 0x02)
 - DIO2 as RF switch: enabled
 - SPI clock: 8 MHz
+
+## Display (ST7789V)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| CS | 12 | Chip select |
+| DC | 11 | Data/command |
+| BL | 42 | Backlight PWM |
+
+320x240 pixels, landscape (rotation=1), SPI clock up to 15 MHz (30 MHz overclockable).
+
+## Shared SPI Bus
+
+| Signal | GPIO |
+|--------|------|
+| SCK | 40 |
+| MISO | 38 |
+| MOSI | 41 |
+
+All three SPI devices (display, radio, SD) share SPI2_HOST. Single-threaded access from `loop()`, no mutex needed.
+
+## Keyboard (ESP32-C3)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| I2C addr | 0x55 | Fixed address |
+| INT | 46 | Interrupt pin |
+| SDA | 18 | Shared I2C bus |
+| SCL | 8 | Shared I2C bus |
+
+## Trackball
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| UP | 3 | ISR-based, GPIO interrupt |
+| DOWN | 2 | ISR-based, GPIO interrupt |
+| LEFT | 1 | ISR-based, GPIO interrupt |
+| RIGHT | 15 | ISR-based, GPIO interrupt |
+| CLICK | 0 | Shared with BOOT button |
+
+Click uses deferred release with 80ms debounce. Long press: 1200ms hold threshold.
+
+## Touchscreen (GT911)
+
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| INT | 16 | Interrupt |
+| I2C addr | 0x5D | Depends on INT state at boot |
+| SDA | 18 | Shared I2C bus |
+| SCL | 8 | Shared I2C bus |
+
+Currently disabled — coordinates uncalibrated.
 
 ## SD Card
 
 | Signal | GPIO | Notes |
 |--------|------|-------|
-| CS | 12 | Separate from LoRa CS (5) |
+| CS | 39 | Shared SPI bus |
 
-Shares HSPI bus with LoRa radio (SCK=40, MISO=39, MOSI=14). Only one device active at a time — SD must be initialized **after** radio.
+FAT32, shares SPI2_HOST with display and radio.
 
-## Keyboard (TCA8418)
-
-| Signal | GPIO | Notes |
-|--------|------|-------|
-| SDA | 8 | I2C data |
-| SCL | 9 | I2C clock |
-| INT | 11 | Active low, falling edge |
-
-Managed by the M5Cardputer library. The TCA8418 is a dedicated keyboard controller IC with built-in key matrix scanning and FIFO.
-
-## GNSS (Reserved — v1.1)
+## GPS (UBlox MIA-M10Q)
 
 | Signal | GPIO | Notes |
 |--------|------|-------|
-| RX | 15 | GPS TX → ESP RX |
-| TX | 13 | ESP TX → GPS RX |
+| TX | 43 | ESP TX → GPS RX |
+| RX | 44 | GPS TX → ESP RX |
 
-UART at 115200 baud. Pins defined but no code path yet.
-
-## Display
-
-**ST7789V2** — 240×135 pixels, RGB565, SPI interface.
-
-Fully managed by M5Unified. No GPIO definitions needed in firmware — the M5Unified library auto-configures display pins based on board detection.
-
-## Audio
-
-**ES8311** codec + **NS4150B** amplifier.
-
-Fully managed by M5Unified. No GPIO definitions needed.
+UART at 115200 baud. Pins defined, not yet implemented.
 
 ## Battery
 
-ADC via M5Unified. 1750mAh LiPo, TP4057 charger IC.
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| ADC | 4 | Battery voltage measurement |
 
-## SPI Bus Sharing
+## Audio (ES7210 I2S)
 
-The HSPI bus is shared between the SX1262 radio (CS=5) and the SD card (CS=12). Key constraints:
-
-1. **Initialize radio first** — SD card init must come after `radio.begin()` since the SPI bus is configured during radio init
-2. **One active at a time** — pull CS high on the inactive device before talking to the other
-3. **Radio has priority** — if a packet arrives during SD access, there may be a brief delay before the ISR fires
+| Signal | GPIO |
+|--------|------|
+| WS (LRCK) | 5 |
+| DOUT | 6 |
+| BCK | 7 |
+| DIN | 14 |
+| SCK | 47 |
+| MCLK | 48 |
 
 ## Hardware Constants
 
@@ -102,6 +139,6 @@ The HSPI bus is shared between the SX1262 radio (CS=5) and the SD card (CS=12). 
 |----------|-------|-------|
 | `MAX_PACKET_SIZE` | 255 | SX1262 maximum single packet |
 | `SPI_FREQUENCY` | 8 MHz | SPI clock for SX1262 |
-| `DISPLAY_WIDTH` | 240 | Pixels |
-| `DISPLAY_HEIGHT` | 135 | Pixels |
-| `GPS_BAUD` | 115200 | GNSS UART speed |
+| `TFT_WIDTH` | 320 | Display pixels (landscape) |
+| `TFT_HEIGHT` | 240 | Display pixels (landscape) |
+| `TFT_SPI_FREQ` | 15 MHz | Display SPI clock |

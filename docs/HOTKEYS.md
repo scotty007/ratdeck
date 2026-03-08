@@ -1,69 +1,92 @@
-# Ratputer — Hotkey Reference
+# Ratdeck — Hotkey Reference
 
-All hotkeys use **Ctrl+key** combinations.
+## Hotkeys (Ctrl+key)
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+H | Toggle help overlay |
+| Ctrl+H | Toggle help overlay (shows all hotkeys on screen) |
 | Ctrl+M | Jump to Messages tab |
-| Ctrl+N | New message |
+| Ctrl+N | Compose new message |
 | Ctrl+S | Jump to Settings tab |
-| Ctrl+A | Force announce to network |
-| Ctrl+D | Dump diagnostics to serial |
-| Ctrl+T | Send radio test packet (FIFO verification) |
+| Ctrl+A | Force announce to all interfaces (LoRa + TCP) |
+| Ctrl+D | Dump full diagnostics to serial |
+| Ctrl+T | Send radio test packet |
 | Ctrl+R | RSSI monitor (5-second continuous sampling) |
 
 ## Navigation
 
-These keys match the physical arrow key positions on the Cardputer Adv keyboard:
-
-| Key | Action |
-|-----|--------|
-| `;` (semicolon) | Scroll up / previous item |
-| `.` (period) | Scroll down / next item |
+| Input | Action |
+|-------|--------|
+| Trackball up/down | Scroll / navigate lists |
+| Trackball left/right | Cycle tabs |
+| Trackball click | Select / confirm |
+| Trackball long-press (1.2s) | Context menu |
 | `,` (comma) | Previous tab |
 | `/` (slash) | Next tab |
-| Enter | Select / confirm / send |
+| Enter | Select / confirm / send message |
 | Esc | Back / cancel |
+| Backspace | Delete character / go back (if input empty) |
 
 ## Text Input
 
-When a text input field is active:
+When a text field is active (message compose, WiFi password, etc.):
 - Type normally to enter characters
 - **Backspace** to delete
-- **Enter** to submit
-- **Esc** to cancel
-- Double-tap **Aa** for caps lock
+- **Enter** to submit / send
+- **Esc** to cancel and go back
 
 ## Tabs
 
-| Tab | Contents |
-|-----|----------|
-| Home | Identity, transport status, radio info, uptime |
-| Msgs | Conversation list with unread badges |
-| Nodes | Discovered Reticulum nodes |
-| Setup | Settings, about, factory reset |
+| Tab | Name | Contents |
+|-----|------|----------|
+| 1 | Home | Name, LXMF address, connection status, online node count |
+| 2 | Friends | Saved contacts (display name only) |
+| 3 | Msgs | Conversation list — sorted by most recent, with preview and unread dots |
+| 4 | Peers | All discovered nodes — contacts section + online section |
+| 5 | Setup | 7-category settings (Device, Display, Radio, Network, Audio, Info, System) |
+
+## Home Screen
+
+- **Enter / trackball click**: Announce to all connected interfaces (LoRa + TCP)
+
+## Messages Screen
+
+- **Up/Down**: Navigate conversations
+- **Enter**: Open conversation
+- **Long-press**: Context menu (Add Friend / Delete Chat / Cancel)
+  - Navigate menu with Up/Down, confirm with Enter
+
+## Message View (Chat)
+
+- **Type**: Compose message
+- **Enter**: Send message
+- **Up/Down**: Scroll message history
+- **Esc / Backspace** (empty input): Go back to conversation list
+
+## Peers Screen
+
+- **Up/Down**: Navigate node list
+- **Enter**: Open chat with selected node
+- **'s' key**: Toggle saved/friend status
+- **Long-press**: Unsaved node → add as friend; saved friend → delete prompt
+
+## Settings Screen
+
+- **Up/Down**: Navigate settings items
+- **Enter**: Toggle / edit selected setting
+- **Left/Right**: Adjust numeric values, cycle enum choices
+- Categories: Device, Display & Input, Radio, Network, Audio, Info, System
 
 ## Serial Diagnostics
 
 **Ctrl+D** prints to serial (115200 baud):
-- Identity hash, transport status, path/link counts
+- Identity hash, destination hash, transport status
+- Path/link counts
 - Radio parameters (freq, SF, BW, CR, TX power, preamble)
 - SX1262 register dump (sync word, IQ, LNA, OCP, TX clamp)
 - Device errors, current RSSI
-- Free heap, flash usage, uptime
+- Free heap, PSRAM, flash usage, uptime
 
-**Ctrl+T** sends a test packet with header `0xA0` and payload `RATPUTER_TEST_1234567890`, then reads back the FIFO buffer to verify the TX path.
+**Ctrl+T** sends a test packet and verifies FIFO readback.
 
-**Ctrl+R** samples RSSI continuously for 5 seconds, printing each reading. Transmit from another device during sampling to verify the RX front-end is hearing RF.
-
-## Settings Submenus (Ctrl+S)
-
-| Menu Item | Contents |
-|-----------|----------|
-| Radio | Frequency (Hz), spreading factor (5–12), bandwidth (7.8k–500k), coding rate (4/5–4/8), TX power (2–22 dBm) |
-| WiFi | Mode (OFF/AP/STA), AP SSID + password, STA SSID + password, TCP endpoints list |
-| Display | Brightness (0–255), dim timeout (seconds), off timeout (seconds) |
-| Audio | Enable/disable notifications, volume (0–100%) |
-| About | Firmware version, Reticulum identity hash, uptime, free heap, flash usage |
-| Factory Reset | Clears config from flash + SD, reboots with defaults (identity and messages preserved) |
+**Ctrl+R** samples RSSI continuously for 5 seconds.

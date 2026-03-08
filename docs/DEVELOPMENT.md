@@ -1,105 +1,27 @@
-# Ratputer — Developer Guide
+# Ratdeck — Developer Guide
 
-## Project Overview
+## Overview
 
-Ratputer is a **standalone Reticulum transport node** with LXMF messaging, built for the M5Stack Cardputer Adv with Cap LoRa-1262 radio. It is **NOT an RNode** — it does not speak KISS protocol. It runs its own Reticulum stack (microReticulum) directly on the device.
+Ratdeck is a standalone Reticulum mesh node with LXMF encrypted messaging for the LilyGo T-Deck Plus (ESP32-S3). It is NOT an RNode — it does not speak KISS protocol. It runs the full Reticulum stack (microReticulum) directly on the device.
 
 Key characteristics:
 - Standalone operation — no host computer required
-- LoRa transport with 1-byte header framing (RNode-compatible on-air format)
+- LoRa transport with 1-byte header framing
 - WiFi transport — AP mode (TCP server) or STA mode (TCP client)
+- BLE transport — NimBLE Sideband interface
 - LXMF encrypted messaging with Ed25519 signatures
-- Cyberpunk terminal UI with tabbed navigation
+- LVGL v8.4 UI with 5-tab navigation
 - JSON-based runtime configuration with SD card + flash dual-backend
-
-## Source Tree
-
-```
-src/
-├── main.cpp                    Setup (24-step init) + main loop (10 steps, 20 FPS)
-├── config/
-│   ├── BoardConfig.h           GPIO pins, SPI config, hardware constants
-│   ├── Config.h                Compile-time: version, feature flags, storage paths, limits
-│   └── UserConfig.*            Runtime settings: dual-backend JSON (SD primary, flash fallback)
-├── radio/
-│   ├── SX1262.*                Full SX1262 driver (register-level, extracted from RNode CE)
-│   └── RadioConstants.h        SX1262 register addresses and command bytes
-├── input/
-│   ├── Keyboard.*              M5Cardputer TCA8418 keyboard wrapper, key event generation
-│   └── HotkeyManager.*        Ctrl+key dispatch table, tab cycle callback
-├── ui/
-│   ├── Theme.h                 Signal green (#00FF41) on black, layout metrics
-│   ├── UIManager.*             Canvas rendering loop, screen stack, boot/normal modes
-│   ├── Screen.h                Abstract base: handleKey(), render(), update()
-│   ├── StatusBar.*             Battery %, transport mode, LoRa indicator, announce flash
-│   ├── TabBar.*                Home/Msgs/Nodes/Setup tabs with unread badges
-│   ├── screens/
-│   │   ├── BootScreen.*        Animated boot with progress bar
-│   │   ├── HomeScreen.*        Identity hash, transport status, radio info, uptime
-│   │   ├── MessagesScreen.*    Conversation list with unread counts
-│   │   ├── MessageView.*       Single conversation view with text input
-│   │   ├── NodesScreen.*       Discovered Reticulum nodes with RSSI/SNR
-│   │   ├── SettingsScreen.*    Radio, WiFi, Display, Audio, About, Factory Reset
-│   │   └── HelpOverlay.*      Hotkey reference overlay (Ctrl+H toggle)
-│   ├── widgets/
-│   │   ├── ScrollList.*        Scrollable list with selection highlight
-│   │   ├── TextInput.*         Single-line text input with cursor
-│   │   └── ProgressBar.*      Boot progress and general-purpose bars
-│   └── assets/
-│       └── BootLogo.h          Embedded boot screen graphic
-├── reticulum/
-│   ├── ReticulumManager.*      microReticulum lifecycle, identity, announce, transport loop
-│   ├── AnnounceManager.*       Node discovery, contact persistence (SD + flash)
-│   ├── LXMFManager.*           LXMF send/receive, outgoing queue, delivery tracking
-│   └── LXMFMessage.*           Wire format: source(16) + msgpack + sig(64)
-├── transport/
-│   ├── LoRaInterface.*         SX1262 ↔ Reticulum bridge (InterfaceImpl), 1-byte header
-│   ├── WiFiInterface.*         WiFi AP, TCP server on port 4242, HDLC framing
-│   ├── TCPClientInterface.*    WiFi STA, TCP client to remote endpoints, HDLC framing
-│   └── BLEStub.*              BLE advertising placeholder (disabled, v1.1)
-├── storage/
-│   ├── FlashStore.*            LittleFS wrapper with atomic writes (.tmp→verify→.bak→rename)
-│   ├── SDStore.*               SD card (FAT32) with atomic writes, wipe, directory management
-│   └── MessageStore.*          Per-conversation message storage (dual: flash + SD backup)
-├── power/
-│   └── PowerManager.*          Screen dim/off/wake state machine, brightness control
-└── audio/
-    └── AudioNotify.*           Notification sounds (boot, message, announce, error)
-```
 
 ## Configuration System
 
 ### Compile-Time (`Config.h`)
 
-Feature flags (`HAS_LORA`, `HAS_WIFI`, etc.), storage paths, protocol limits, power defaults. Changed only by editing source and recompiling.
+Feature flags (`HAS_LORA`, `HAS_WIFI`, `HAS_BLE`, etc.), storage paths, protocol limits, power defaults. Changed only by editing source and recompiling.
 
 ### Runtime (`UserConfig`)
 
-JSON-based settings persisted to storage. Schema defined by `UserSettings` struct in `UserConfig.h`:
-
-```
-{
-  "loraFrequency": 915000000,
-  "loraSF": 7,
-  "loraBW": 500000,
-  "loraCR": 5,
-  "loraTxPower": 10,
-  "wifiMode": 1,           // 0=OFF, 1=AP, 2=STA
-  "wifiAPSSID": "ratputer-XXXX",
-  "wifiAPPassword": "ratspeak",
-  "wifiSTASSID": "",
-  "wifiSTAPassword": "",
-  "tcpConnections": [{"host": "rns.beleth.net", "port": 4242, "autoConnect": true}],
-  "screenDimTimeout": 30,
-  "screenOffTimeout": 60,
-  "brightness": 255,
-  "audioEnabled": true,
-  "audioVolume": 80,
-  "displayName": ""
-}
-```
-
-**Dual-backend persistence**: `UserConfig::load(SDStore&, FlashStore&)` reads from SD first (`/ratputer/config/user.json`), falls back to flash (`/config/user.json`). `save()` writes to both.
+JSON-based settings persisted to storage. Schema defined by `UserSettings` struct in `UserConfig.h`. Dual-backend persistence: `UserConfig::load(SDStore&, FlashStore&)` reads from SD first (`/ratputer/config/user.json`), falls back to flash (`/config/user.json`). `save()` writes to both.
 
 ## Transport Architecture
 
@@ -122,109 +44,65 @@ Any `0x7E` or `0x7D` in payload is escaped as `0x7D (byte ^ 0x20)`.
 ### LoRa 1-Byte Header
 
 Every LoRa packet has a 1-byte header prepended:
-- Upper nibble: random sequence number (for future split-packet tracking)
+- Upper nibble: random sequence number
 - Lower nibble: flags (`0x01` = split, not currently implemented)
 
-This matches the RNode on-air format, so Ratputer packets are structurally compatible with RNodes on the same frequency/modulation.
+## Screen System (LVGL v8.4)
 
-## Reticulum Integration
+All screens extend `LvScreen` base class:
+- `createUI(lv_obj_t* parent)` — build LVGL widgets
+- `onEnter()` — called when screen becomes active
+- `handleKey(const KeyEvent&)` — keyboard/trackball input
+- `handleLongPress()` — trackball long-press (1200ms)
 
-### microReticulum Library
+### Active Screens
 
-C++ port of the Python Reticulum stack. Provides `Identity`, `Destination`, `Transport`, `Packet`, and `Link` classes.
+| Screen | Class | Tab | Purpose |
+|--------|-------|-----|---------|
+| Boot | LvBootScreen | — | Boot animation with progress bar |
+| Home | LvHomeScreen | 1 | Name, LXMF address, status, online nodes |
+| Friends | LvContactsScreen | 2 | Saved contacts (display name only) |
+| Msgs | LvMessagesScreen | 3 | Conversation list, sorted by recent, previews |
+| Peers | LvNodesScreen | 4 | All discovered nodes (contacts + online) |
+| Setup | LvSettingsScreen | 5 | 7-category settings editor |
+| Help | LvHelpOverlay | — | Hotkey reference modal (Ctrl+H) |
+| Name | LvNameInputScreen | — | First-boot name entry |
 
-Key integration points in `ReticulumManager`:
-- `RNS::Reticulum::start()` — initialize the stack
-- `RNS::Transport::register_interface()` — add LoRa, WiFi, TCP interfaces
-- `RNS::Transport::register_announce_handler()` — node discovery callback
-- `RNS::Reticulum::loop()` — process incoming/outgoing in main loop
+### Theme
 
-### Identity Persistence
+Matrix green (#00FF41) on black. Layout: 320x240, status bar 20px top, tab bar 20px bottom, content 200px.
 
-Device identity (Ed25519 keypair) is stored at `/identity/identity.key` in LittleFS with a backup copy on SD at `/ratputer/identity/identity.key`. If flash identity is lost (e.g., LittleFS format), the SD backup is restored automatically.
-
-### Path Persistence
-
-Transport paths are serialized to `/transport/paths.msgpack` in LittleFS periodically (every 60 seconds, configurable via `PATH_PERSIST_INTERVAL_MS`).
-
-## LXMF Protocol
-
-Wire format for direct LoRa delivery:
-
-```
-source_hash(16 bytes) + msgpack([timestamp, content, title, fields]) + signature(64 bytes)
-```
-
-- `source_hash` — 16-byte truncated SHA-256 of sender's public key
-- MsgPack array: `[double timestamp, string content, string title, map fields]`
-- `signature` — Ed25519 signature over `source_hash + msgpack_content`
-
-Messages under the MDU (Maximum Data Unit, ~254 bytes for LoRa) are sent as single direct packets. Larger messages would require link-based transfer (not yet implemented).
-
-Messages are stored as JSON per-conversation in both flash (`/messages/<peer_hex>/`) and SD (`/ratputer/messages/<peer_hex>/`).
-
-## Storage Architecture
-
-### FlashStore (LittleFS)
-
-Primary storage for all persistent data. 1.875 MB partition at offset 0x610000.
-
-**Atomic write pattern**: Write to `.tmp` → verify read-back → rename existing to `.bak` → rename `.tmp` to final path. Prevents corruption on power loss.
-
-### SDStore (FAT32)
-
-Secondary/backup storage on microSD card. Shares HSPI bus with LoRa radio.
-
-Directory structure:
-```
-/ratputer/
-├── config/
-│   └── user.json        Runtime settings backup
-├── messages/
-│   └── <peer_hex>/      Per-conversation message history
-├── contacts/            Discovered node info
-└── identity/
-    └── identity.key     Identity key backup
-```
-
-### MessageStore (Dual Backend)
-
-Wraps FlashStore and SDStore to provide unified message access. Writes go to both backends; reads prefer SD (larger capacity), fall back to flash.
-
-## WiFi State Machine
-
-Three modes, selected in Settings:
-
-```
-RAT_WIFI_OFF (0) ──→ No WiFi, saves power + heap
-RAT_WIFI_AP  (1) ──→ Creates AP "ratputer-XXXX", TCP server on :4242
-RAT_WIFI_STA (2) ──→ Connects to configured network, TCP client connections
-```
-
-In STA mode, WiFi connection is non-blocking. TCP client interfaces are created on first successful connection and auto-reconnect if WiFi drops.
-
-Boot loop recovery forces WiFi to OFF if 3 consecutive boots fail.
+Key colors:
+- `PRIMARY` (0x00FF41) — main text, active elements
+- `ACCENT` (0x00FFFF) — cyan highlights, incoming messages
+- `MUTED` (0x559955) — secondary text
+- `SELECTION_BG` (0x004400) — selected row
+- `ERROR_CLR` (0xFF3333) — errors, disconnected indicators
 
 ## How To: Add a New Screen
 
-1. Create `src/ui/screens/MyScreen.h` and `MyScreen.cpp`
-2. Inherit from `Screen` — implement `handleKey()`, `render()`, optionally `update()`
-3. In `render()`, use `m5canvas` to draw within the content area (y: 14 to 119)
+1. Create `src/ui/screens/LvMyScreen.h` and `LvMyScreen.cpp`
+2. Inherit from `LvScreen` — implement `createUI()`, `handleKey()`, optionally `onEnter()`
+3. In `createUI()`, build LVGL widgets on the provided parent container
 4. Add a global instance in `main.cpp`
-5. Wire it up: either add to `tabScreens[]` array or navigate to it from a hotkey/callback
+5. Wire it up: add to `tabScreens[]` array for tab navigation, or navigate to it from a hotkey/callback via `ui.showScreen()`
 
 ## How To: Add a New Hotkey
 
 1. In `main.cpp`, create a callback function: `void onHotkeyX() { ... }`
 2. Register in `setup()`: `hotkeys.registerHotkey('x', "Description", onHotkeyX);`
-3. Update `docs/HOTKEYS.md` and the help overlay text in `HelpOverlay.cpp`
+3. Update `docs/HOTKEYS.md` and the help overlay text in `LvHelpOverlay.cpp`
 
-## How To: Add a Settings Submenu
+## How To: Add a Settings Category
 
-1. In `SettingsScreen.h`, add an enum value to the menu state
-2. In `SettingsScreen.cpp`, add menu item text and handler
-3. Add `render*()` and `handleKey*()` methods for the new submenu
-4. Use `userConfig->save(sdStore, flash)` to persist changes
+Settings uses a category/item system in `LvSettingsScreen`:
+
+1. Add your category to the categories array
+2. Define items with types: `READONLY`, `TOGGLE`, `INTEGER`, `ENUM_CHOICE`, `TEXT_INPUT`, `ACTION`
+3. Add value getter/setter logic in the category handler
+4. Changes that need reboot: set flag and show toast
+5. Live changes: apply immediately in the setter callback
+6. Persist with `userConfig->save(sdStore, flash)`
 
 ## How To: Add a New Transport Interface
 
@@ -232,117 +110,121 @@ Boot loop recovery forces WiFi to OFF if 3 consecutive boots fail.
 2. Implement `start()`, `stop()`, `loop()`, `send_outgoing()`
 3. In `loop()`, call `receive_incoming(data)` when data arrives
 4. In `main.cpp`, construct the impl, wrap in `RNS::Interface`, register with `RNS::Transport`
-5. Store the `RNS::Interface` wrapper in a persistent container (e.g., `std::list`) — Transport holds references
+5. Store the `RNS::Interface` wrapper in a `std::list` (not vector) — Transport holds references, and vector reallocation invalidates them
 
 ## Initialization Sequence
 
 `setup()` runs these steps in order:
 
-1. M5Cardputer.begin() — display, keyboard, battery ADC
-2. UI init + boot screen
-3. Keyboard init
-4. Register hotkeys (Ctrl+H/M/N/S/A/D/T/R)
-5. Mount LittleFS (FlashStore)
-6. Boot loop detection (NVS counter)
-7. Radio init — SX1262 begin, configure modulation, enter RX
-8. SD card init (shares HSPI, must be after radio)
-9. Serial WIPE window (500ms)
-10. Reticulum init — identity load/generate, transport start
-11. MessageStore init (dual backend)
-12. LXMF init + message callback
-13. AnnounceManager init + contact load
-14. Register announce handler with Transport
-15. Load UserConfig (SD → flash fallback)
-16. Boot loop recovery check (force WiFi OFF if triggered)
-17. Apply saved radio settings
-18. WiFi start (AP, STA, or OFF based on config)
-19. BLE skip (disabled)
-20. Power manager init + apply saved brightness/timeouts
-21. Audio init + apply saved volume
-22. Boot complete — switch to Home screen
-23. Initial announce broadcast
-24. Clear boot loop counter (NVS reset to 0)
+1. GPIO 10 HIGH — enables all T-Deck Plus peripherals
+2. Serial begin (115200 baud)
+3. Shared SPI bus init (SCK=40, MISO=38, MOSI=41)
+4. I2C bus init (SDA=18, SCL=8)
+5. Display init (LovyanGFX + LVGL)
+6. Boot screen shown
+7. Keyboard init (I2C 0x55)
+8. Trackball init (GPIO ISRs on pins 0/1/2/3/15)
+9. Register hotkeys (Ctrl+H/M/N/S/A/D/T/R)
+10. Mount LittleFS (FlashStore)
+11. Boot loop detection (NVS counter)
+12. Radio init — SX1262 TCXO, calibrate, configure, enter RX
+13. SD card init (shares SPI, must be after radio)
+14. Reticulum init — identity load/generate (triple-redundant), transport start
+15. MessageStore init (dual backend)
+16. LXMF init + message callback
+17. AnnounceManager init + contact load
+18. Register announce handler with Transport
+19. Load UserConfig (SD -> flash fallback)
+20. Boot loop recovery check (force WiFi OFF if triggered)
+21. Apply saved radio settings
+22. WiFi start (AP, STA, or OFF based on config)
+23. BLE init (NimBLE Sideband)
+24. Power manager init + apply brightness/timeouts
+25. Audio init
+26. Name input screen (first boot only)
+27. Switch to Home screen
+28. Initial announce broadcast
+29. Clear boot loop counter (NVS reset to 0)
 
 ## Main Loop
 
-Runs at 20 FPS (50ms interval):
+Single-threaded on core 1:
 
-1. `M5Cardputer.update()` — poll M5 hardware
-2. Keyboard poll → hotkey dispatch → screen key handler → tab cycling
-3. `rns.loop()` — Reticulum transport + radio RX processing
-4. Auto-announce (every 5 minutes)
-5. `lxmf.loop()` — outgoing message queue
-6. WiFi STA connection handler + TCP client creation
-7. `wifiImpl->loop()` — WiFi transport (AP server accepts, processes clients)
-8. TCP client loops — reconnection, frame processing
-9. `power.loop()` — dim/off state machine
-10. Canvas render (if screen is on)
+```
+loop() {
+  1. inputManager.update()          -- keyboard, trackball, touch polling
+  2. Long-press dispatch             -- ui.handleLongPress() at 1200ms
+  3. Key event dispatch              -- hotkeys -> LvInput::feedKey() -> screen handleKey()
+  4. lv_timer_handler()              -- LVGL rendering (skipped when screen off)
+  5. rns.loop()                      -- Reticulum + LoRa RX (throttled to 5ms)
+  6. Auto-announce (5 min interval)
+  7. lxmf.loop() + announce loop     -- message queue + deferred saves
+  8. WiFi STA handler                -- connect/disconnect, TCP client creation
+  9. WiFi/TCP/BLE loops              -- transport processing
+  10. powerMgr.loop()                -- ACTIVE -> DIMMED -> SCREEN_OFF
+  11. Status bar update (1Hz)         -- battery, signal indicators
+  12. Heartbeat (5s serial)
+}
+```
 
 ## Memory Budget
 
-The ESP32-S3 has 512 KB SRAM. Typical free heap at runtime:
+ESP32-S3 with 8MB PSRAM. PSRAM is used for large allocations; SRAM (512 KB) for stack and DMA:
 
 | State | Free Heap | Notes |
 |-------|-----------|-------|
 | Boot complete (WiFi OFF) | ~170 KB | Baseline |
 | Boot complete (WiFi AP) | ~150 KB | WiFi stack + TCP server |
 | Boot complete (WiFi STA) | ~140 KB | WiFi stack + TCP clients |
-| With BLE enabled | -50 KB | BLE disabled in v1.0 to save this |
+| With BLE enabled | ~120 KB | NimBLE stack |
 
-Key consumers:
-- microReticulum transport tables: ~20–40 KB (scales with paths/links)
-- M5Canvas sprite buffer: 240×135×2 = 64.8 KB (RGB565 double-buffer)
-- ArduinoJson documents: ~4 KB per config parse
-- SX1262 TX/RX buffers: 255 bytes each
-- TCP RX buffer: 600 bytes per connection
-
-Monitor with `Ctrl+D` → `Free heap` or `ESP.getFreeHeap()` in code.
-
-## Debugging Tips
-
-### Serial output
-
-All subsystems log with `[TAG]` prefixes. Connect at 115200 baud. Key tags: `[BOOT]`, `[RADIO]`, `[LORA_IF]`, `[WIFI]`, `[LXMF]`, `[SD]`.
-
-### Radio debugging
-
-- `Ctrl+D` dumps all SX1262 registers — compare sync word, IQ polarity, LNA, and OCP with a known-working device
-- `Ctrl+T` sends a test packet and reads back the FIFO — confirms the TX path end-to-end
-- `Ctrl+R` samples RSSI for 5 seconds — if readings stay at -110 to -120 dBm while another device transmits, the RX front-end isn't receiving RF
-- `DevErrors: 0x0040` = PLL lock failure → check TCXO voltage (must be 3.0V / 0x06)
-
-### Crash debugging
-
-ESP-IDF stores a core dump in the `coredump` partition (64 KB at 0x7F0000). To read it:
-
-```bash
-python3 -m esptool --chip esp32s3 --port /dev/cu.usbmodem* read-flash 0x7F0000 0x10000 coredump.bin
-python3 -m esp_coredump info_corefile -t raw -c coredump.bin .pio/build/ratputer_915/firmware.elf
-```
-
-### Common crash causes
-
-| Crash | Cause | Fix |
-|-------|-------|-----|
-| `LoadProhibited` at transport loop | Dangling `Interface&` reference | Store `RNS::Interface` in `std::list` (not vector, not local scope) |
-| `Stack overflow` in task | Deep call chain in ISR or recursive render | Increase stack size or reduce nesting |
-| `Guru Meditation` on WiFi init | Heap exhaustion | Disable BLE, reduce TCP connections, check for leaks |
-| Boot loop (3+ failures) | WiFi or TCP init crash | Boot loop recovery auto-disables WiFi; fix root cause in Settings |
+Monitor with `Ctrl+D` -> `Free heap` in serial output.
 
 ## Compile-Time Limits
 
-These are defined in `Config.h` and can be adjusted:
+Defined in `Config.h`:
 
 | Constant | Default | Purpose |
 |----------|---------|---------|
-| `RATPUTER_MAX_NODES` | 50 | Max discovered nodes in AnnounceManager |
-| `RATPUTER_MAX_MESSAGES_PER_CONV` | 100 | Max messages stored per conversation |
-| `FLASH_MSG_CACHE_LIMIT` | 20 | Keep only N most recent messages per conv in flash (SD has full history) |
-| `RATPUTER_MAX_OUTQUEUE` | 20 | Max pending outgoing LXMF messages |
+| `RATDECK_MAX_NODES` | 200 | Max discovered nodes (PSRAM allows more) |
+| `RATDECK_MAX_MESSAGES_PER_CONV` | 100 | Max messages stored per conversation |
+| `FLASH_MSG_CACHE_LIMIT` | 20 | Recent messages per conv in flash (SD has full history) |
+| `RATDECK_MAX_OUTQUEUE` | 20 | Max pending outgoing LXMF messages |
 | `MAX_TCP_CONNECTIONS` | 4 | Max simultaneous TCP client connections |
-| `TCP_RECONNECT_INTERVAL_MS` | 10000 | Retry interval for dropped TCP connections |
-| `TCP_CONNECT_TIMEOUT_MS` | 5000 | Timeout for TCP connect() |
-| `PATH_PERSIST_INTERVAL_MS` | 60000 | How often transport paths are saved to flash |
+| `TCP_RECONNECT_INTERVAL_MS` | 15000 | Retry interval for dropped TCP connections |
+| `TCP_CONNECT_TIMEOUT_MS` | 500 | Timeout for TCP connect() |
+| `PATH_PERSIST_INTERVAL_MS` | 60000 | Transport path save interval |
 | `SCREEN_DIM_TIMEOUT_MS` | 30000 | Default screen dim timeout |
 | `SCREEN_OFF_TIMEOUT_MS` | 60000 | Default screen off timeout |
-| `ANNOUNCE_INTERVAL_MS` | 300000 | Auto-announce period (5 minutes, defined in main.cpp) |
+
+## Debugging
+
+### Serial Output
+
+All subsystems log with `[TAG]` prefixes at 115200 baud. Key tags: `[BOOT]`, `[RADIO]`, `[LORA_IF]`, `[WIFI]`, `[TCP]`, `[LXMF]`, `[SD]`, `[BLE]`.
+
+### Radio Debugging
+
+- `Ctrl+D` — dumps SX1262 registers, identity, transport status, heap, PSRAM, uptime
+- `Ctrl+T` — sends test packet with FIFO readback verification
+- `Ctrl+R` — 5-second continuous RSSI sampling
+
+### Core Dump
+
+ESP-IDF stores a core dump in the `coredump` partition (64 KB at 0xFF0000):
+
+```bash
+python3 -m esptool --chip esp32s3 --port /dev/cu.usbmodem* \
+    read-flash 0xFF0000 0x10000 coredump.bin
+python3 -m esp_coredump info_corefile -t raw -c coredump.bin \
+    .pio/build/ratdeck_915/firmware.elf
+```
+
+### Common Crashes
+
+| Crash | Cause | Fix |
+|-------|-------|-----|
+| `LoadProhibited` at transport loop | Dangling `Interface&` reference | Store in `std::list` (not vector, not local scope) |
+| `Stack overflow` | Deep call chain or recursive render | Increase stack size or reduce nesting |
+| `Guru Meditation` on WiFi init | Heap exhaustion | Reduce TCP connections, check for leaks |
+| Boot loop (3+ failures) | WiFi or TCP init crash | Boot loop recovery auto-disables WiFi |
