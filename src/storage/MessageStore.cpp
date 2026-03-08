@@ -2,6 +2,7 @@
 #include "config/Config.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 
 // Helper: check if filename ends with ".json"
 static bool isJsonFile(const char* name) {
@@ -21,8 +22,10 @@ bool MessageStore::begin(FlashStore* flash, SDStore* sd) {
     }
 
     migrateTruncatedDirs();
+    initReceiveCounter();
     refreshConversations();
-    Serial.printf("[MSGSTORE] %d conversations found\n", (int)_conversations.size());
+    Serial.printf("[MSGSTORE] %d conversations found, receive counter=%lu\n",
+                  (int)_conversations.size(), (unsigned long)_nextReceiveCounter);
     return true;
 }
 
@@ -64,6 +67,66 @@ void MessageStore::migrateFlashToSD() {
     if (migrated > 0) {
         Serial.printf("[MSGSTORE] Migrated %d messages from flash to SD\n", migrated);
     }
+}
+
+void MessageStore::initReceiveCounter() {
+    Preferences prefs;
+    prefs.begin("ratdeck_msg", true);
+    _nextReceiveCounter = prefs.getUInt("msgctr", 0);
+    prefs.end();
+
+    if (_nextReceiveCounter > 0) {
+        Serial.printf("[MSGSTORE] receive counter=%lu (from NVS)\n",
+                      (unsigned long)_nextReceiveCounter);
+        return;
+    }
+
+    // NVS has no counter — scan existing files to find highest prefix (first boot only)
+    uint32_t maxPrefix = 0;
+
+    auto scanDir = [&](File& dir) {
+        File entry = dir.openNextFile();
+        while (entry) {
+            if (!entry.isDirectory()) {
+                String name = entry.name();
+                unsigned long val = strtoul(name.c_str(), nullptr, 10);
+                if (val > maxPrefix && val < 1000000000) maxPrefix = (uint32_t)val;
+            }
+            entry = dir.openNextFile();
+        }
+    };
+
+    // Scan SD conversations
+    if (_sd && _sd->isReady()) {
+        File dir = _sd->openDir(SD_PATH_MESSAGES);
+        if (dir && dir.isDirectory()) {
+            File peerDir = dir.openNextFile();
+            while (peerDir) {
+                if (peerDir.isDirectory()) scanDir(peerDir);
+                peerDir = dir.openNextFile();
+            }
+        }
+    }
+
+    // Scan flash conversations
+    File dir = LittleFS.open(PATH_MESSAGES);
+    if (dir && dir.isDirectory()) {
+        File peerDir = dir.openNextFile();
+        while (peerDir) {
+            if (peerDir.isDirectory()) scanDir(peerDir);
+            peerDir = dir.openNextFile();
+        }
+    }
+
+    _nextReceiveCounter = maxPrefix + 1;
+
+    Preferences p;
+    p.begin("ratdeck_msg", false);
+    p.putUInt("msgctr", _nextReceiveCounter);
+    p.end();
+
+    Serial.printf("[MSGSTORE] Initialized receive counter to %lu from existing files\n",
+                  (unsigned long)_nextReceiveCounter);
 }
 
 // Migrate old 16-char truncated directories to full 32-char hex names
@@ -204,17 +267,18 @@ bool MessageStore::saveMessage(const LXMFMessage& msg) {
     String json;
     serializeJson(doc, json);
 
-    // Use messageId hash prefix in filename for dedup (same message = same file)
+    // Counter-based filename: unique, monotonic, sorts correctly
+    uint32_t counter = _nextReceiveCounter++;
     char filename[64];
-    if (msg.messageId.size() > 0) {
-        std::string idHex = msg.messageId.toHex();
-        snprintf(filename, sizeof(filename), "%s_%c.json",
-                 idHex.substr(0, 16).c_str(),
-                 msg.incoming ? 'i' : 'o');
-    } else {
-        snprintf(filename, sizeof(filename), "%lu_%c.json",
-                 (unsigned long)(msg.timestamp * 1000),
-                 msg.incoming ? 'i' : 'o');
+    snprintf(filename, sizeof(filename), "%013lu_%c.json",
+             (unsigned long)counter, msg.incoming ? 'i' : 'o');
+
+    // Persist counter to NVS
+    {
+        Preferences p;
+        p.begin("ratdeck_msg", false);
+        p.putUInt("msgctr", _nextReceiveCounter);
+        p.end();
     }
 
     bool sdOk = false;

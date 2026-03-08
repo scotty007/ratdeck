@@ -28,11 +28,8 @@ void LXMFManager::loop() {
         Serial.printf("[LXMF] Queue drain: status=%s dest=%s\n",
                       msg.statusStr(), msg.destHash.toHex().substr(0, 8).c_str());
 
-        // Re-save with updated status (SENT/FAILED) using same timestamp key
-        RNS::Bytes savedId = msg.messageId;
-        msg.messageId = RNS::Bytes();
+        // Re-save with updated status — counter filenames ensure uniqueness
         if (_store) _store->saveMessage(msg);
-        msg.messageId = savedId;
 
         // Fire status callback so UI can refresh
         if (_statusCb) {
@@ -70,6 +67,12 @@ bool LXMFManager::sendDirect(LXMFMessage& msg) {
     RNS::Identity recipientId = RNS::Identity::recall(msg.destHash);
     if (!recipientId) {
         msg.retries++;
+        // Request path on first retry and every 10 retries
+        if (msg.retries == 1 || msg.retries % 10 == 0) {
+            Serial.printf("[LXMF] Requesting path for %s\n",
+                          msg.destHash.toHex().substr(0, 8).c_str());
+            RNS::Transport::request_path(msg.destHash);
+        }
         if (msg.retries >= 30) {
             Serial.printf("[LXMF] recall FAILED for %s after %d retries — marking FAILED\n",
                           msg.destHash.toHex().substr(0, 8).c_str(), msg.retries);

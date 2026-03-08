@@ -6,8 +6,8 @@
 
 #define RATDECK_VERSION_MAJOR  1
 #define RATDECK_VERSION_MINOR  5
-#define RATDECK_VERSION_PATCH  2
-#define RATDECK_VERSION_STRING "1.5.2"
+#define RATDECK_VERSION_PATCH  3
+#define RATDECK_VERSION_STRING "1.5.3"
 
 // --- Feature Flags ---
 #define HAS_DISPLAY     true

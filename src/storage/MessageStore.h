@@ -27,8 +27,10 @@ private:
     void enforceSDLimit(const std::string& peerHex);
     void migrateFlashToSD();
     void migrateTruncatedDirs();
+    void initReceiveCounter();
 
     FlashStore* _flash = nullptr;
     SDStore* _sd = nullptr;
     std::vector<std::string> _conversations;
+    uint32_t _nextReceiveCounter = 0;
 };

@@ -6,22 +6,73 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 
+// Skip one MsgPack value at data[pos], return new pos (or len on error)
+static size_t mpSkipValue(const uint8_t* data, size_t len, size_t pos) {
+    if (pos >= len) return len;
+    uint8_t b = data[pos];
+    if (b <= 0x7F || b >= 0xE0) return pos + 1;
+    if ((b & 0xF0) == 0x80) {
+        size_t n = (b & 0x0F) * 2;
+        pos++;
+        for (size_t j = 0; j < n && pos < len; j++) pos = mpSkipValue(data, len, pos);
+        return pos;
+    }
+    if ((b & 0xF0) == 0x90) {
+        size_t n = b & 0x0F;
+        pos++;
+        for (size_t j = 0; j < n && pos < len; j++) pos = mpSkipValue(data, len, pos);
+        return pos;
+    }
+    if ((b & 0xE0) == 0xA0) return pos + 1 + (b & 0x1F);
+    if (b == 0xC0 || b == 0xC2 || b == 0xC3) return pos + 1;
+    if (b == 0xC4 && pos + 1 < len) return pos + 2 + data[pos + 1];
+    if (b == 0xC5 && pos + 2 < len) return pos + 3 + ((size_t)data[pos + 1] << 8 | data[pos + 2]);
+    if (b == 0xCA) return pos + 5;
+    if (b == 0xCB) return pos + 9;
+    if (b == 0xCC || b == 0xD0) return pos + 2;
+    if (b == 0xCD || b == 0xD1) return pos + 3;
+    if (b == 0xCE || b == 0xD2) return pos + 5;
+    if (b == 0xCF || b == 0xD3) return pos + 9;
+    if (b == 0xD9 && pos + 1 < len) return pos + 2 + data[pos + 1];
+    if (b == 0xDA && pos + 2 < len) return pos + 3 + ((size_t)data[pos + 1] << 8 | data[pos + 2]);
+    return len;
+}
+
+// Two-pass: prefer str elements (display name), fall back to bin (NomadNet compat).
 static std::string extractMsgPackName(const uint8_t* data, size_t len) {
     if (len < 2) return "";
     uint8_t b = data[0];
     size_t pos = 0;
-    if ((b & 0xF0) == 0x90) { if ((b & 0x0F) == 0) return ""; pos = 1; }
-    else if (b == 0xDC && len >= 3) { pos = 3; }
+    size_t arrLen = 0;
+    if ((b & 0xF0) == 0x90) { arrLen = b & 0x0F; if (arrLen == 0) return ""; pos = 1; }
+    else if (b == 0xDC && len >= 3) { arrLen = ((size_t)data[1] << 8) | data[2]; pos = 3; }
     else return "";
-    if (pos >= len) return "";
-    b = data[pos];
-    size_t slen = 0;
-    if ((b & 0xE0) == 0xA0) { slen = b & 0x1F; pos++; }
-    else if (b == 0xD9 && pos + 1 < len) { slen = data[pos+1]; pos += 2; }
-    else if (b == 0xDA && pos + 2 < len) { slen = ((size_t)data[pos+1] << 8) | data[pos+2]; pos += 3; }
-    else return "";
-    if (pos + slen > len) return "";
-    return std::string((const char*)&data[pos], slen);
+
+    // Pass 1: scan for first non-empty STR element
+    size_t savedPos = pos;
+    for (size_t i = 0; i < arrLen && pos < len; i++) {
+        b = data[pos];
+        size_t slen = 0;
+        if ((b & 0xE0) == 0xA0) { slen = b & 0x1F; pos++; }
+        else if (b == 0xD9 && pos + 1 < len) { slen = data[pos + 1]; pos += 2; }
+        else if (b == 0xDA && pos + 2 < len) { slen = ((size_t)data[pos + 1] << 8) | data[pos + 2]; pos += 3; }
+        else { pos = mpSkipValue(data, len, pos); continue; }
+        if (slen > 0 && pos + slen <= len) return std::string((const char*)&data[pos], slen);
+        pos += slen;
+    }
+
+    // Pass 2: scan for first non-empty BIN element (fallback)
+    pos = savedPos;
+    for (size_t i = 0; i < arrLen && pos < len; i++) {
+        b = data[pos];
+        size_t slen = 0;
+        if (b == 0xC4 && pos + 1 < len) { slen = data[pos + 1]; pos += 2; }
+        else if (b == 0xC5 && pos + 2 < len) { slen = ((size_t)data[pos + 1] << 8) | data[pos + 2]; pos += 3; }
+        else { pos = mpSkipValue(data, len, pos); continue; }
+        if (slen > 0 && pos + slen <= len) return std::string((const char*)&data[pos], slen);
+        pos += slen;
+    }
+    return "";
 }
 
 static std::string sanitizeName(const std::string& raw, size_t maxLen = 16) {
@@ -52,7 +103,22 @@ void AnnounceManager::received_announce(
     std::string name;
     if (app_data.size() > 0) {
         std::string rawName = extractMsgPackName(app_data.data(), app_data.size());
-        if (rawName.empty()) rawName = app_data.toString();
+        if (rawName.empty()) {
+            bool isText = app_data.size() > 0 && app_data.size() <= 32;
+            for (size_t i = 0; isText && i < app_data.size(); i++) {
+                uint8_t c = app_data.data()[i];
+                if (c < 0x20 || c > 0x7E) isText = false;
+            }
+            if (isText) {
+                rawName = app_data.toString();
+            } else {
+                Serial.printf("[ANNOUNCE] Unknown app_data format (%d bytes): ", (int)app_data.size());
+                for (size_t i = 0; i < std::min((size_t)32, app_data.size()); i++) {
+                    Serial.printf("%02X ", app_data.data()[i]);
+                }
+                Serial.println();
+            }
+        }
         name = sanitizeName(rawName);
     }
     // Filter out own announces

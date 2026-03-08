@@ -150,9 +150,13 @@ static void announceWithName() {
 // =============================================================================
 
 static void reloadTCPClients() {
-    // Stop existing clients (don't delete — Transport holds interface references)
+    // Stop and deregister existing clients
     for (auto* tcp : tcpClients) tcp->stop();
+    for (auto& iface : tcpIfaces) {
+        RNS::Transport::deregister_interface(iface);
+    }
     tcpClients.clear();
+    tcpIfaces.clear();
 
     // Create new clients from current config
     if (WiFi.status() == WL_CONNECTED) {
@@ -670,6 +674,7 @@ void setup() {
     lvHomeScreen.setLXMFManager(&lxmf);
     lvHomeScreen.setAnnounceManager(announceManager);
     lvHomeScreen.setRadioOnline(radioOnline);
+    lvHomeScreen.setTCPClients(&tcpClients);
     lvHomeScreen.setAnnounceCallback([]() {
         announceWithName();
         Serial.println("[HOME] Announce triggered via Enter");
@@ -903,20 +908,33 @@ void loop() {
 
             // Recreate TCP clients on every WiFi connect (old clients may have stale sockets)
             reloadTCPClients();
-            // Announce over TCP now that it's available
-            if (!tcpClients.empty()) {
+            // Announce over TCP now that it's available — delay to let VPS register the connection
+            bool anyTcpConnected = false;
+            for (auto* tcp : tcpClients) {
+                if (tcp->isConnected()) { anyTcpConnected = true; break; }
+            }
+            if (anyTcpConnected) {
+                delay(1500);  // Let VPS Reticulum register the new interface
                 Serial.println("[TCP] Sending announce over new TCP connection...");
                 RNS::Bytes appData = encodeAnnounceName(userConfig.settings().displayName);
                 rns.announce(appData);
                 lastAutoAnnounce = millis();
+            } else {
+                Serial.println("[TCP] No TCP clients connected, skipping announce");
             }
         } else if (!connected && wifiSTAConnected) {
             wifiSTAConnected = false;
             ui.statusBar().setWiFiActive(false);
             ui.lvStatusBar().setWiFiActive(false);
-            // Stop TCP clients cleanly so they don't spin on dead sockets
+            ui.lvStatusBar().setTCPConnected(false);
+            // Stop and deregister TCP clients cleanly
             for (auto* tcp : tcpClients) tcp->stop();
-            Serial.println("[WIFI] STA disconnected");
+            for (auto& iface : tcpIfaces) {
+                RNS::Transport::deregister_interface(iface);
+            }
+            tcpClients.clear();
+            tcpIfaces.clear();
+            Serial.println("[WIFI] STA disconnected, TCP interfaces deregistered");
         }
     }
 
@@ -940,6 +958,12 @@ void loop() {
         if (powerMgr.isScreenOn()) {
             ui.statusBar().setBatteryPercent(powerMgr.batteryPercent());
             ui.lvStatusBar().setBatteryPercent(powerMgr.batteryPercent());
+            // Update TCP connection indicator
+            bool anyTcpUp = false;
+            for (auto* tcp : tcpClients) {
+                if (tcp && tcp->isConnected()) { anyTcpUp = true; break; }
+            }
+            ui.lvStatusBar().setTCPConnected(anyTcpUp);
             ui.update();
         }
     }

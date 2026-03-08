@@ -14,6 +14,7 @@ public:
     void setBLEEnabled(bool enabled) { _bleEnabled = enabled; refreshIndicators(); }
     void setWiFiActive(bool active);
     void setWiFiEnabled(bool enabled) { _wifiEnabled = enabled; refreshIndicators(); }
+    void setTCPConnected(bool connected);
     void setBatteryPercent(int pct);
     void setTransportMode(const char* mode);
     void flashAnnounce();
@@ -36,6 +37,7 @@ private:
     bool _bleEnabled = false;
     bool _wifiActive = false;
     bool _wifiEnabled = false;
+    bool _tcpConnected = false;
     int _battPct = -1;
     unsigned long _announceFlashEnd = 0;
     unsigned long _toastEnd = 0;

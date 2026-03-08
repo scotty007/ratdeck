@@ -96,6 +96,11 @@ void LvStatusBar::setWiFiActive(bool active) {
     refreshIndicators();
 }
 
+void LvStatusBar::setTCPConnected(bool connected) {
+    _tcpConnected = connected;
+    refreshIndicators();
+}
+
 void LvStatusBar::setBatteryPercent(int pct) {
     if (_battPct == pct) return;
     _battPct = pct;
@@ -126,9 +131,23 @@ void LvStatusBar::showToast(const char* msg, uint32_t durationMs) {
 }
 
 void LvStatusBar::refreshIndicators() {
-    bool connected = _loraOnline || _wifiActive;
-    uint32_t col = connected ? Theme::PRIMARY : Theme::ERROR_CLR;
-    for (int i = 0; i < 3; i++) {
-        if (_bars[i]) lv_obj_set_style_bg_color(_bars[i], lv_color_hex(col), 0);
+    // Bar 0 (short): LoRa — green=online, red=offline
+    if (_bars[0]) {
+        uint32_t col = _loraOnline ? Theme::PRIMARY : Theme::ERROR_CLR;
+        lv_obj_set_style_bg_color(_bars[0], lv_color_hex(col), 0);
+    }
+    // Bar 1 (medium): WiFi — green=connected, yellow=enabled but not connected, red=off
+    if (_bars[1]) {
+        uint32_t col = Theme::ERROR_CLR;
+        if (_wifiActive) col = Theme::PRIMARY;
+        else if (_wifiEnabled) col = Theme::WARNING_CLR;
+        lv_obj_set_style_bg_color(_bars[1], lv_color_hex(col), 0);
+    }
+    // Bar 2 (tall): TCP — green=connected, yellow=WiFi up but TCP down, red=off
+    if (_bars[2]) {
+        uint32_t col = Theme::ERROR_CLR;
+        if (_tcpConnected) col = Theme::PRIMARY;
+        else if (_wifiActive) col = Theme::WARNING_CLR;
+        lv_obj_set_style_bg_color(_bars[2], lv_color_hex(col), 0);
     }
 }

@@ -26,6 +26,20 @@ static void mpPackString(std::vector<uint8_t>& buf, const std::string& str) {
     buf.insert(buf.end(), str.begin(), str.end());
 }
 
+// MsgPack bin format — Python LXMF expects title/content as bytes, not str
+static void mpPackBin(std::vector<uint8_t>& buf, const std::string& str) {
+    size_t len = str.size();
+    if (len < 256) {
+        buf.push_back(0xC4);
+        buf.push_back((uint8_t)len);
+    } else {
+        buf.push_back(0xC5);
+        buf.push_back((len >> 8) & 0xFF);
+        buf.push_back(len & 0xFF);
+    }
+    buf.insert(buf.end(), str.begin(), str.end());
+}
+
 static bool mpReadFloat64(const uint8_t* data, size_t len, size_t& pos, double& val) {
     if (pos >= len || data[pos] != 0xCB) return false;
     pos++;
@@ -40,9 +54,13 @@ static bool mpReadString(const uint8_t* data, size_t len, size_t& pos, std::stri
     if (pos >= len) return false;
     uint8_t b = data[pos];
     size_t slen = 0;
+    // MsgPack str formats
     if ((b & 0xE0) == 0xA0) { slen = b & 0x1F; pos++; }
     else if (b == 0xD9) { pos++; if (pos >= len) return false; slen = data[pos++]; }
     else if (b == 0xDA) { pos++; if (pos + 2 > len) return false; slen = ((size_t)data[pos] << 8) | data[pos + 1]; pos += 2; }
+    // MsgPack bin formats (Python LXMF sends title/content as bin)
+    else if (b == 0xC4) { pos++; if (pos >= len) return false; slen = data[pos++]; }
+    else if (b == 0xC5) { pos++; if (pos + 2 > len) return false; slen = ((size_t)data[pos] << 8) | data[pos + 1]; pos += 2; }
     else return false;
     if (pos + slen > len) return false;
     str.assign((const char*)&data[pos], slen);
@@ -74,8 +92,8 @@ std::vector<uint8_t> LXMFMessage::packContent(double timestamp, const std::strin
     buf.reserve(32 + content.size() + title.size());
     buf.push_back(0x94);
     mpPackFloat64(buf, timestamp);
-    mpPackString(buf, title);    // LXMF spec: [ts, title, content, fields]
-    mpPackString(buf, content);
+    mpPackBin(buf, title);      // LXMF spec: [ts, title, content, fields] — must be bin, not str
+    mpPackBin(buf, content);
     buf.push_back(0x80);
     return buf;
 }
@@ -84,21 +102,29 @@ std::vector<uint8_t> LXMFMessage::packFull(const RNS::Identity& signingIdentity)
     std::vector<uint8_t> packed = packContent(timestamp, content, title);
     if (sourceHash.size() < 16 || destHash.size() < 16) return {};
 
-    // Sign: dest_hash || source_hash || packed_content (LXMF spec)
-    std::vector<uint8_t> signable;
-    signable.reserve(32 + packed.size());
-    signable.insert(signable.end(), destHash.data(), destHash.data() + 16);
-    signable.insert(signable.end(), sourceHash.data(), sourceHash.data() + 16);
-    signable.insert(signable.end(), packed.begin(), packed.end());
+    // Sign: dest_hash || source_hash || packed_content || message_hash (LXMF spec)
+    std::vector<uint8_t> hashed_part;
+    hashed_part.reserve(32 + packed.size());
+    hashed_part.insert(hashed_part.end(), destHash.data(), destHash.data() + 16);
+    hashed_part.insert(hashed_part.end(), sourceHash.data(), sourceHash.data() + 16);
+    hashed_part.insert(hashed_part.end(), packed.begin(), packed.end());
 
-    RNS::Bytes signableBytes(signable.data(), signable.size());
+    RNS::Bytes hashedBytes(hashed_part.data(), hashed_part.size());
+    RNS::Bytes messageHash = RNS::Identity::full_hash(hashedBytes);
+
+    std::vector<uint8_t> signed_part;
+    signed_part.reserve(hashed_part.size() + messageHash.size());
+    signed_part.insert(signed_part.end(), hashed_part.begin(), hashed_part.end());
+    signed_part.insert(signed_part.end(), messageHash.data(), messageHash.data() + messageHash.size());
+
+    RNS::Bytes signableBytes(signed_part.data(), signed_part.size());
     RNS::Bytes sig = signingIdentity.sign(signableBytes);
     if (sig.size() < 64) return {};
 
-    // Wire (opportunistic SINGLE): [src_hash:16][signature:64][packed_content]
-    // dest_hash is implicit in the Reticulum SINGLE packet destination
+    // Wire: [dest_hash:16][src_hash:16][signature:64][packed_content]
     std::vector<uint8_t> payload;
-    payload.reserve(16 + 64 + packed.size());
+    payload.reserve(16 + 16 + 64 + packed.size());
+    payload.insert(payload.end(), destHash.data(), destHash.data() + 16);
     payload.insert(payload.end(), sourceHash.data(), sourceHash.data() + 16);
     payload.insert(payload.end(), sig.data(), sig.data() + 64);
     payload.insert(payload.end(), packed.begin(), packed.end());
@@ -106,14 +132,14 @@ std::vector<uint8_t> LXMFMessage::packFull(const RNS::Identity& signingIdentity)
 }
 
 bool LXMFMessage::unpackFull(const uint8_t* data, size_t len, LXMFMessage& msg) {
-    // Wire (opportunistic SINGLE): [src_hash:16][signature:64][packed_content]
-    // dest_hash comes from the Reticulum packet (set by caller)
-    if (len < 81) return false;  // 16+64+1 minimum
-    msg.sourceHash = RNS::Bytes(data, 16);
-    msg.signature = RNS::Bytes(data + 16, 64);
+    // Wire: [dest_hash:16][src_hash:16][signature:64][packed_content]
+    if (len < 97) return false;  // 16+16+64+1 minimum
+    msg.destHash = RNS::Bytes(data, 16);
+    msg.sourceHash = RNS::Bytes(data + 16, 16);
+    msg.signature = RNS::Bytes(data + 32, 64);
 
-    const uint8_t* content = data + 80;
-    size_t contentLen = len - 80;
+    const uint8_t* content = data + 96;
+    size_t contentLen = len - 96;
     size_t pos = 0;
 
     if (pos >= contentLen) return false;

@@ -5,6 +5,7 @@
 #include "reticulum/AnnounceManager.h"
 #include "radio/SX1262.h"
 #include "config/UserConfig.h"
+#include "transport/TCPClientInterface.h"
 #include <Arduino.h>
 #include <WiFi.h>
 
@@ -71,12 +72,21 @@ void LvHomeScreen::refreshUI() {
         lv_label_set_text(_lblId, "ID: ---");
     }
 
-    // Status
+    // Status — check actual TCP socket state, not just WiFi association
     bool loraUp = _radioOnline && _radio && _radio->isRadioOnline();
-    bool tcpUp = WiFi.status() == WL_CONNECTED;
+    bool tcpUp = false;
+    if (_tcpClients) {
+        for (auto* tcp : *_tcpClients) {
+            if (tcp && tcp->isConnected()) { tcpUp = true; break; }
+        }
+    }
+    bool wifiUp = WiFi.status() == WL_CONNECTED;
     if (loraUp && tcpUp) {
         lv_label_set_text(_lblStatus, "Status: Online (LoRa/TCP)");
         lv_obj_set_style_text_color(_lblStatus, lv_color_hex(Theme::PRIMARY), 0);
+    } else if (loraUp && wifiUp) {
+        lv_label_set_text(_lblStatus, "Status: Online (LoRa/WiFi)");
+        lv_obj_set_style_text_color(_lblStatus, lv_color_hex(Theme::WARNING_CLR), 0);
     } else if (loraUp) {
         lv_label_set_text(_lblStatus, "Status: Online (LoRa)");
         lv_obj_set_style_text_color(_lblStatus, lv_color_hex(Theme::PRIMARY), 0);

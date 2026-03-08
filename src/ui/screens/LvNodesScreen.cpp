@@ -158,8 +158,13 @@ void LvNodesScreen::rebuildList() {
         // Hops + age
         unsigned long ageSec = (millis() - node.lastSeen) / 1000;
         char infoBuf[24];
-        if (ageSec < 60) snprintf(infoBuf, sizeof(infoBuf), "%dhop %lus", node.hops, ageSec);
-        else snprintf(infoBuf, sizeof(infoBuf), "%dhop %lum", node.hops, ageSec / 60);
+        if (node.hops < 128) {
+            if (ageSec < 60) snprintf(infoBuf, sizeof(infoBuf), "%dhop %lus", node.hops, ageSec);
+            else snprintf(infoBuf, sizeof(infoBuf), "%dhop %lum", node.hops, ageSec / 60);
+        } else {
+            if (ageSec < 60) snprintf(infoBuf, sizeof(infoBuf), "%lus", ageSec);
+            else snprintf(infoBuf, sizeof(infoBuf), "%lum", ageSec / 60);
+        }
 
         lv_obj_t* info = lv_label_create(row);
         lv_obj_set_style_text_font(info, smallFont, 0);
