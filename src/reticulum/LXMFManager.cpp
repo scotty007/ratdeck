@@ -28,9 +28,6 @@ void LXMFManager::loop() {
         Serial.printf("[LXMF] Queue drain: status=%s dest=%s\n",
                       msg.statusStr(), msg.destHash.toHex().substr(0, 8).c_str());
 
-        // Re-save with updated status — counter filenames ensure uniqueness
-        if (_store) _store->saveMessage(msg);
-
         // Fire status callback so UI can refresh
         if (_statusCb) {
             std::string peerHex = msg.destHash.toHex();

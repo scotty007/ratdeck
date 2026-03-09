@@ -111,15 +111,21 @@ void LvMessageView::onEnter() {
         _lxmf->markRead(_peerHex);
         // Update unread badge on Messages tab
         if (_ui) _ui->lvTabBar().setUnreadCount(LvTabBar::TAB_MSGS, _lxmf->unreadCount());
-        // Register status callback for live updates
+        // Register status callback — update cached message status in-place
         std::string peer = _peerHex;
-        _lxmf->setStatusCallback([this, peer](const std::string& peerHex, double, LXMFStatus) {
-            if (peerHex == peer) _statusDirty = true;
+        _lxmf->setStatusCallback([this, peer](const std::string& peerHex, double, LXMFStatus newStatus) {
+            if (peerHex != peer) return;
+            for (int i = _cachedMsgs.size() - 1; i >= 0; i--) {
+                if (!_cachedMsgs[i].incoming && _cachedMsgs[i].status == LXMFStatus::QUEUED) {
+                    _cachedMsgs[i].status = newStatus;
+                    rebuildMessages();
+                    break;
+                }
+            }
         });
     }
     _lastMsgCount = -1;
     _lastRefreshMs = 0;
-    _statusDirty = false;
     _inputText.clear();
 
     if (_lblHeader) {
@@ -146,21 +152,12 @@ void LvMessageView::refreshUI() {
     if (now - _lastRefreshMs < REFRESH_INTERVAL_MS) return;
     _lastRefreshMs = now;
 
-    // Quick check: if summary count unchanged and no status callback fired, skip disk load
+    // Only reload from disk when message count changes (new messages arrive)
     auto* summary = _lxmf->getConversationSummary(_peerHex);
-    if (summary && !_statusDirty && summary->totalCount == (int)_cachedMsgs.size()) return;
+    if (summary && summary->totalCount == (int)_cachedMsgs.size()) return;
 
-    _statusDirty = false;
     auto newMsgs = _lxmf->getMessages(_peerHex);
-
-    // Rebuild if count changed or any status changed
-    bool changed = (newMsgs.size() != _cachedMsgs.size());
-    if (!changed) {
-        for (size_t i = 0; i < newMsgs.size(); i++) {
-            if (newMsgs[i].status != _cachedMsgs[i].status) { changed = true; break; }
-        }
-    }
-    if (changed) {
+    if (newMsgs.size() != _cachedMsgs.size()) {
         _cachedMsgs = std::move(newMsgs);
         _lastMsgCount = (int)_cachedMsgs.size();
         rebuildMessages();

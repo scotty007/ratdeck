@@ -325,37 +325,42 @@ bool MessageStore::saveMessage(const LXMFMessage& msg) {
 std::vector<LXMFMessage> MessageStore::loadConversation(const std::string& peerHex) const {
     std::vector<LXMFMessage> messages;
 
-    auto loadFromDir = [&](File& d) {
+    auto loadFromDir = [&](File& d, auto readFileFn) {
+        // Collect filenames first, then sort alphabetically (counter prefix → insertion order)
+        std::vector<String> filenames;
         File entry = d.openNextFile();
         while (entry) {
             if (!entry.isDirectory() && isJsonFile(entry.name())) {
-                size_t size = entry.size();
-                if (size > 0 && size < 4096) {
-                    String json = entry.readString();
-                    JsonDocument doc;
-                    if (!deserializeJson(doc, json)) {
-                        LXMFMessage msg;
-                        std::string srcHex = doc["src"] | "";
-                        std::string dstHex = doc["dst"] | "";
-                        if (!srcHex.empty()) {
-                            msg.sourceHash = RNS::Bytes();
-                            msg.sourceHash.assignHex(srcHex.c_str());
-                        }
-                        if (!dstHex.empty()) {
-                            msg.destHash = RNS::Bytes();
-                            msg.destHash.assignHex(dstHex.c_str());
-                        }
-                        msg.timestamp = doc["ts"] | 0.0;
-                        msg.content = doc["content"] | "";
-                        msg.title = doc["title"] | "";
-                        msg.incoming = doc["incoming"] | false;
-                        msg.status = (LXMFStatus)(doc["status"] | 0);
-                        msg.read = doc["read"] | false;
-                        messages.push_back(msg);
-                    }
-                }
+                filenames.push_back(entry.name());
             }
             entry = d.openNextFile();
+        }
+        std::sort(filenames.begin(), filenames.end());
+
+        for (const auto& fname : filenames) {
+            String json = readFileFn(fname);
+            if (json.length() == 0) continue;
+            JsonDocument doc;
+            if (!deserializeJson(doc, json)) {
+                LXMFMessage msg;
+                std::string srcHex = doc["src"] | "";
+                std::string dstHex = doc["dst"] | "";
+                if (!srcHex.empty()) {
+                    msg.sourceHash = RNS::Bytes();
+                    msg.sourceHash.assignHex(srcHex.c_str());
+                }
+                if (!dstHex.empty()) {
+                    msg.destHash = RNS::Bytes();
+                    msg.destHash.assignHex(dstHex.c_str());
+                }
+                msg.timestamp = doc["ts"] | 0.0;
+                msg.content = doc["content"] | "";
+                msg.title = doc["title"] | "";
+                msg.incoming = doc["incoming"] | false;
+                msg.status = (LXMFStatus)(doc["status"] | 0);
+                msg.read = doc["read"] | false;
+                messages.push_back(msg);
+            }
         }
     };
 
@@ -364,7 +369,10 @@ std::vector<LXMFMessage> MessageStore::loadConversation(const std::string& peerH
         String sdDir = sdConversationDir(peerHex);
         File d = _sd->openDir(sdDir.c_str());
         if (d && d.isDirectory()) {
-            loadFromDir(d);
+            loadFromDir(d, [&](const String& fname) {
+                String path = sdDir + "/" + fname;
+                return _sd->readString(path.c_str());
+            });
             loadedFromSD = true;
         }
     }
@@ -373,7 +381,15 @@ std::vector<LXMFMessage> MessageStore::loadConversation(const std::string& peerH
         String dir = conversationDir(peerHex);
         File d = LittleFS.open(dir);
         if (d && d.isDirectory()) {
-            loadFromDir(d);
+            loadFromDir(d, [&](const String& fname) {
+                String path = dir + "/" + fname;
+                File f = LittleFS.open(path);
+                if (f && !f.isDirectory()) {
+                    size_t size = f.size();
+                    if (size > 0 && size < 4096) return f.readString();
+                }
+                return String("");
+            });
         }
     }
 

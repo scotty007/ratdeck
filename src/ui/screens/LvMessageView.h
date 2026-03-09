@@ -42,7 +42,6 @@ private:
     int _lastMsgCount = -1;
     unsigned long _lastRefreshMs = 0;
     std::vector<LXMFMessage> _cachedMsgs;
-    bool _statusDirty = false;
 
     // LVGL widgets
     lv_obj_t* _header = nullptr;
