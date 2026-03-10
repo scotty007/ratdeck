@@ -146,7 +146,7 @@ void AnnounceManager::received_announce(
         }
     }
 
-    std::string idHex = announced_identity.hexhash();
+    std::string idHex = announced_identity ? announced_identity.hexhash() : "";
 
     unsigned long now = millis();
     for (auto& node : _nodes) {

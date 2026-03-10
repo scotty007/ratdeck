@@ -13,8 +13,6 @@ public:
     void stop() override;
     void loop() override;
 
-    bool needs_transport_headers() const override { return true; }
-
     virtual inline std::string toString() const override {
         return "TCPClient[" + _name + "]";
     }
