@@ -1,30 +1,28 @@
 <div align="center">
 
-# ratdeck
+# [Ratdeck](https://ratspeak.org/)
 
-**Encrypted mesh messenger for the LilyGo T-Deck Plus**
+**Standalone Reticulum for the LilyGo T-Deck**
 
+</div>
+
+Ratdeck turns a [LilyGo T-Deck](https://www.lilygo.cc/products/t-deck-plus) into a full standalone [Reticulum](https://reticulum.network/) node. It's not just an RNode which requires another device — it's the complete setup.
+
+End-to-end encrypted [LXMF](https://github.com/markqvist/LXMF) messaging over LoRa, TCP over WiFi for bridging to the wider Reticulum network, node discovery, identity management, and more.
+
+<div align="center">
+  
+---
 [![Ratspeak Demo](https://img.youtube.com/vi/F6I6fkMPxgI/maxresdefault.jpg)](https://www.youtube.com/watch?v=F6I6fkMPxgI)
 
 <sub>[▶ YouTube: Reticulum Standalone - T-Deck & Cardputer Adv](https://www.youtube.com/watch?v=F6I6fkMPxgI)</sub>
 
+---
 </div>
 
----
+## Installing
 
-RatDeck turns a [LilyGo T-Deck Plus](https://www.lilygo.cc/products/t-deck-plus) into a fully self-contained [Reticulum](https://reticulum.network/) mesh node. It's not an RNode and it's not a gateway — it's a complete encrypted communicator you carry with you.
-
-End-to-end encrypted [LXMF](https://github.com/markqvist/LXMF) messaging over LoRa, WiFi bridging to the wider Reticulum network, node discovery, multiple identities, transport relay mode, and a configurable SX1262 radio — all through an LVGL touchscreen UI with a physical QWERTY keyboard and trackball.
-
-## Get one
-
-1. Buy a **LilyGo T-Deck Plus** (~$55 — [LilyGo](https://www.lilygo.cc/), [AliExpress](https://aliexpress.com), or Amazon)
-2. Attach a **915 MHz antenna** (SMA, usually included)
-3. Flash the firmware
-
-### Flash it
-
-The easiest way is the **[web flasher](https://ratspeak.org/download.html)** — plug in USB, click flash, done.
+The easiest way is the **[web flasher](https://ratspeak.org/download.html)** — enable download mode (hold the trackball while powering on), plug in the USB, click flash, done.
 
 To build from source:
 
@@ -35,29 +33,33 @@ pip install platformio
 python3 -m platformio run --target upload
 ```
 
-First build takes a couple minutes while PlatformIO pulls the toolchain. After that it's fast.
+## Usage
 
-## Using it
-
-On first boot, RatDeck generates a Reticulum identity and shows a name input screen. Your LXMF address (32-character hex string) is what you share with contacts.
+On first boot, Ratdeck generates a Reticulum identity and shows a name input screen. Your LXMF address (32-character hex string) is what you share with contacts.
 
 **Tabs:** Home, Friends, Msgs, Peers, Setup — navigate with the trackball or `,` / `/` keys.
 
-**Sending a message:** Find someone in Peers, click with the trackball to open chat, type your message, hit Enter. Status goes yellow (sending) → green (delivered).
+**Manually announce:** To send an announcement manually, press the trackball or enter on the home tab.
+
+**Add/delete contacts/messages:** Hold the trackball down on a chat or a peer to add or delete.
+
+**Sending a message:** Find someone in Peers, select to open chat, type your message, hit Enter. Status goes yellow (sending) → green (delivery confirmed).
 
 **Radio presets** (Setup → Radio):
-- **Long Range** — SF12, 62.5 kHz, 22 dBm. Maximum distance, very slow.
-- **Balanced** — SF9, 125 kHz, 17 dBm. Good default.
-- **Fast** — SF7, 250 kHz, 14 dBm. Short range, quick transfers.
+- **Long Range** — SF12, 62.5 kHz, 22 dBm. Longest distance, slow.
+- **Balanced** — SF9, 125 kHz, 17 dBm. Medium distance, medium.
+- **Fast** — SF7, 250 kHz, 14 dBm. Shortest distance, fast.
 
-All radio parameters are individually tunable. Changes apply immediately, no reboot.
+All radio parameters are individually tunable. Changes apply immediately, no reboot. Please operate in accordance with local laws, as you are solely responsible for knowing which regulations and requirements apply to your jurisdiction.
 
-### WiFi bridging
+### WiFi Bridging (Alpha)
 
-RatDeck can bridge your laptop to the LoRa mesh:
+Use **STA mode** to connect to existing WiFi and reach remote nodes like `rns.ratspeak.org:4242`.
+
+To bridge LoRa with Reticulum on your computer:
 
 1. Set WiFi to **AP mode** in Setup → Network (creates `ratdeck-XXXX`, password: `ratspeak`)
-2. Connect your laptop to that network
+2. Connect your computer to that network
 3. Add to your Reticulum config:
 
 ```ini
@@ -67,13 +69,7 @@ RatDeck can bridge your laptop to the LoRa mesh:
   target_port = 4242
 ```
 
-Your desktop Reticulum instance now reaches the LoRa mesh through RatDeck's radio.
-
-Or use **STA mode** to connect to existing WiFi and reach remote nodes like `rns.ratspeak.org:4242`.
-
-### Transport mode
-
-Enable in Setup → Network to turn your RatDeck into a mesh relay — it'll forward packets and maintain routing tables for other nodes. Best for fixed, elevated positions with good radio coverage.
+Note: WiFi bridging methods and interfaces will be revamped with Ratspeak client release, therefore, it's unlikely AP mode works at all currently.
 
 ## Docs
 
