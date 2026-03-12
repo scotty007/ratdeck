@@ -37,7 +37,7 @@ python3 -m platformio run --target upload
 
 On first boot, Ratdeck generates a Reticulum identity and shows a name input screen. Your LXMF address (32-character hex string) is what you share with contacts.
 
-**Tabs:** Home, Friends, Msgs, Peers, Setup — navigate with the trackball or `,` / `/` keys.
+**Tabs:** Home, Friends, Msgs, Peers, Setup — navigate with the trackball.
 
 **Manually announce:** To send an announcement manually, press the trackball or enter on the home tab.
 
@@ -69,7 +69,7 @@ To bridge LoRa with Reticulum on your computer:
   target_port = 4242
 ```
 
-Note: WiFi bridging methods and interfaces will be revamped with Ratspeak client release, therefore, it's unlikely AP mode works at all currently.
+Note: WiFi bridging methods and interfaces will be revamped with Ratspeak's client release, therefore, it's unlikely AP mode works at all currently.
 
 ## Docs
 
