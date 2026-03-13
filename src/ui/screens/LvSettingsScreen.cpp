@@ -399,7 +399,14 @@ void LvSettingsScreen::buildItems() {
         [](int) { return String((unsigned long)(ESP.getFreePsram() / 1024)) + " KB"; }});
     idx++;
     _items.push_back({"Flash", SettingType::READONLY, nullptr, nullptr,
-        [this](int) { return _flash && _flash->exists("/ratputer") ? String("Mounted") : String("Error"); }});
+        [this](int) {
+            if (!_flash || !_flash->isReady()) return String("Error");
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%lu/%lu KB",
+                     (unsigned long)(_flash->usedBytes() / 1024),
+                     (unsigned long)(_flash->totalBytes() / 1024));
+            return String(buf);
+        }});
     idx++;
     _items.push_back({"SD Card", SettingType::READONLY, nullptr, nullptr,
         [this](int) { return _sd && _sd->isReady() ? String("Ready") : String("Not Found"); }});
@@ -950,24 +957,49 @@ bool LvSettingsScreen::handleKey(const KeyEvent& event) {
             // Value edit mode
             if (_editing) {
                 auto& item = _items[_selectedIdx];
+                // Direct digit entry for INTEGER fields
+                if (event.character >= '0' && event.character <= '9') {
+                    int digit = event.character - '0';
+                    if (!_numericTyping) {
+                        _editValue = digit;
+                        _numericTyping = true;
+                    } else {
+                        int newVal = _editValue * 10 + digit;
+                        if (newVal <= item.maxVal) _editValue = newVal;
+                    }
+                    rebuildItemList(); return true;
+                }
                 if (event.left) {
                     _editValue -= item.step;
                     if (_editValue < item.minVal) _editValue = item.minVal;
+                    _numericTyping = false;
                     rebuildItemList(); return true;
                 }
                 if (event.right) {
                     _editValue += item.step;
                     if (_editValue > item.maxVal) _editValue = item.maxVal;
+                    _numericTyping = false;
                     rebuildItemList(); return true;
                 }
                 if (event.enter || event.character == '\n' || event.character == '\r') {
+                    if (_editValue < item.minVal) _editValue = item.minVal;
                     if (item.setter) item.setter(_editValue);
                     _editing = false;
+                    _numericTyping = false;
                     applyAndSave();
                     rebuildItemList(); return true;
                 }
-                if (event.del || event.character == 8 || event.character == 0x1B) {
-                    _editing = false; rebuildItemList(); return true;
+                if (event.del || event.character == 8) {
+                    if (_numericTyping && _editValue > 0) {
+                        _editValue /= 10;
+                    } else {
+                        _editing = false;
+                        _numericTyping = false;
+                    }
+                    rebuildItemList(); return true;
+                }
+                if (event.character == 0x1B) {
+                    _editing = false; _numericTyping = false; rebuildItemList(); return true;
                 }
                 return true;
             }
@@ -1017,6 +1049,7 @@ bool LvSettingsScreen::handleKey(const KeyEvent& event) {
                     rebuildItemList();
                 } else {
                     _editing = true;
+                    _numericTyping = false;
                     _editValue = item.getter ? item.getter() : 0;
                     rebuildItemList();
                 }

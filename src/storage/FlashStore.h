@@ -21,6 +21,8 @@ public:
     bool format();
 
     bool isReady() const { return _ready; }
+    size_t totalBytes() const { return _ready ? LittleFS.totalBytes() : 0; }
+    size_t usedBytes() const { return _ready ? LittleFS.usedBytes() : 0; }
 
 private:
     bool _ready = false;

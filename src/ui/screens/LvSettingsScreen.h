@@ -126,6 +126,7 @@ private:
     // Edit state
     bool _editing = false;
     int _editValue = 0;
+    bool _numericTyping = false;   // true once user types digits in INTEGER edit
     bool _textEditing = false;
     String _editText;
     bool _confirmingReset = false;

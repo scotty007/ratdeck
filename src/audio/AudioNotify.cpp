@@ -56,7 +56,8 @@ void AudioNotify::writeTone(uint16_t freq, uint16_t durationMs) {
     if (!_enabled || !_i2sReady) return;
 
     int numSamples = (AUDIO_SAMPLE_RATE * durationMs) / 1000;
-    int16_t* buf = (int16_t*)malloc(numSamples * sizeof(int16_t));
+    int16_t* buf = (int16_t*)ps_malloc(numSamples * sizeof(int16_t));
+    if (!buf) buf = (int16_t*)malloc(numSamples * sizeof(int16_t));
     if (!buf) return;
 
     float vol = (_volume / 100.0f) * 16000.0f;
@@ -83,8 +84,11 @@ void AudioNotify::writeTone(uint16_t freq, uint16_t durationMs) {
 void AudioNotify::writeSilence(uint16_t durationMs) {
     if (!_i2sReady) return;
     int numSamples = (AUDIO_SAMPLE_RATE * durationMs) / 1000;
-    int16_t* buf = (int16_t*)calloc(numSamples, sizeof(int16_t));
+    size_t bufSize = numSamples * sizeof(int16_t);
+    int16_t* buf = (int16_t*)ps_malloc(bufSize);
+    if (!buf) buf = (int16_t*)malloc(bufSize);
     if (!buf) return;
+    memset(buf, 0, bufSize);
     size_t written = 0;
     i2s_write(I2S_PORT, buf, numSamples * sizeof(int16_t), &written, portMAX_DELAY);
     free(buf);
