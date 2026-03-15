@@ -111,14 +111,14 @@ void LvMessageView::onEnter() {
         _lxmf->markRead(_peerHex);
         // Update unread badge on Messages tab
         if (_ui) _ui->lvTabBar().setUnreadCount(LvTabBar::TAB_MSGS, _lxmf->unreadCount());
-        // Register status callback — update cached message status in-place
+        // Register status callback — partial update without full rebuild
         std::string peer = _peerHex;
         _lxmf->setStatusCallback([this, peer](const std::string& peerHex, double, LXMFStatus newStatus) {
             if (peerHex != peer) return;
             for (int i = _cachedMsgs.size() - 1; i >= 0; i--) {
                 if (!_cachedMsgs[i].incoming && _cachedMsgs[i].status == LXMFStatus::QUEUED) {
                     _cachedMsgs[i].status = newStatus;
-                    rebuildMessages();
+                    updateMessageStatus(i, newStatus);
                     break;
                 }
             }
@@ -174,6 +174,8 @@ void LvMessageView::rebuildMessages() {
     _lastMsgCount = (int)_cachedMsgs.size();
     _lastRefreshMs = millis();
     lv_obj_clean(_msgScroll);
+    _statusLabels.clear();
+    _textLabels.clear();
 
     const lv_font_t* font = &lv_font_montserrat_12;
     int maxBubbleW = Theme::CONTENT_W * 3 / 4;
@@ -229,7 +231,7 @@ void LvMessageView::rebuildMessages() {
         lv_obj_set_width(lbl, maxBubbleW - 14);
         lv_label_set_text(lbl, msg.content.c_str());
 
-        // Status indicator for outgoing
+        // Status indicator for outgoing (tracked for partial updates)
         if (!msg.incoming) {
             const char* ind = "~";
             uint32_t indColor = Theme::MUTED;
@@ -243,6 +245,11 @@ void LvMessageView::rebuildMessages() {
             lv_obj_set_style_text_color(statusLbl, lv_color_hex(indColor), 0);
             lv_label_set_text(statusLbl, ind);
             lv_obj_align(statusLbl, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+            _statusLabels.push_back(statusLbl);
+            _textLabels.push_back(lbl);
+        } else {
+            _statusLabels.push_back(nullptr);
+            _textLabels.push_back(nullptr);
         }
 
         // Timestamp below bubble
@@ -267,6 +274,35 @@ void LvMessageView::rebuildMessages() {
 
     // Auto-scroll to bottom
     lv_obj_scroll_to_y(_msgScroll, LV_COORD_MAX, LV_ANIM_OFF);
+}
+
+void LvMessageView::updateMessageStatus(int msgIdx, LXMFStatus status) {
+    if (msgIdx < 0 || msgIdx >= (int)_statusLabels.size()) return;
+    lv_obj_t* statusLbl = _statusLabels[msgIdx];
+    lv_obj_t* textLbl = _textLabels[msgIdx];
+    if (!statusLbl) return;  // Incoming message, no status label
+
+    // Update status indicator
+    const char* ind = "~";
+    uint32_t indColor = Theme::MUTED;
+    if (status == LXMFStatus::SENT || status == LXMFStatus::DELIVERED) {
+        ind = "*"; indColor = Theme::ACCENT;
+    } else if (status == LXMFStatus::FAILED) {
+        ind = "!"; indColor = Theme::ERROR_CLR;
+    }
+    lv_obj_set_style_text_color(statusLbl, lv_color_hex(indColor), 0);
+    lv_label_set_text(statusLbl, ind);
+
+    // Update text color to match status
+    if (textLbl) {
+        uint32_t textColor = Theme::PRIMARY;
+        if (status == LXMFStatus::QUEUED || status == LXMFStatus::SENDING) {
+            textColor = Theme::WARNING_CLR;
+        } else if (status == LXMFStatus::FAILED) {
+            textColor = Theme::ERROR_CLR;
+        }
+        lv_obj_set_style_text_color(textLbl, lv_color_hex(textColor), 0);
+    }
 }
 
 void LvMessageView::sendCurrentMessage() {

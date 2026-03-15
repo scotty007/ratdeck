@@ -21,6 +21,7 @@ public:
 
 private:
     void refreshTabs();
+    void refreshTab(int idx);
 
     lv_obj_t* _bar = nullptr;
     lv_obj_t* _tabs[TAB_COUNT] = {};

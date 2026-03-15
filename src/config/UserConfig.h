@@ -56,6 +56,9 @@ struct UserSettings {
 
     // Identity
     String displayName;
+
+    // Developer mode — unlocks custom radio parameters
+    bool devMode = false;
 };
 
 class UserConfig {

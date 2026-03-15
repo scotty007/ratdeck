@@ -111,6 +111,10 @@ void LoRaInterface::loop() {
             rssi, status, chipMode);
     }
 
+    // Only check for packets when DIO1 interrupt signals one is available
+    if (!_radio->packetAvailable) return;
+    _radio->packetAvailable = false;
+
     int packetSize = _radio->parsePacket();
     if (packetSize > RNODE_HEADER_L) {
         // parsePacket() already read the FIFO into packetBuffer() — copy from there

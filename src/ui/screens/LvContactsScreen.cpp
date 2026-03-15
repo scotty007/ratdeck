@@ -28,6 +28,31 @@ void LvContactsScreen::createUI(lv_obj_t* parent) {
     lv_obj_set_layout(_list, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(_list, LV_FLEX_FLOW_COLUMN);
 
+    // Pre-allocate row pool
+    const lv_font_t* font = &lv_font_montserrat_14;
+    for (int i = 0; i < ROW_POOL_SIZE; i++) {
+        lv_obj_t* row = lv_obj_create(_list);
+        lv_obj_set_size(row, Theme::CONTENT_W, 28);
+        lv_obj_set_style_bg_color(row, lv_color_hex(Theme::BG), 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(Theme::BORDER), 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_style_radius(row, 0, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+
+        lv_obj_t* lbl = lv_label_create(row);
+        lv_obj_set_style_text_font(lbl, font, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(Theme::ACCENT), 0);
+        lv_label_set_text(lbl, "");
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
+
+        _poolRows[i] = row;
+        _poolNameLabels[i] = lbl;
+    }
+
     _lastContactCount = -1;
     rebuildList();
 }
@@ -35,6 +60,7 @@ void LvContactsScreen::createUI(lv_obj_t* parent) {
 void LvContactsScreen::onEnter() {
     _lastContactCount = -1;
     _selectedIdx = 0;
+    _viewportStart = 0;
     rebuildList();
 }
 
@@ -48,20 +74,13 @@ void LvContactsScreen::refreshUI() {
 }
 
 void LvContactsScreen::updateSelection(int oldIdx, int newIdx) {
-    if (oldIdx >= 0 && oldIdx < (int)_rows.size()) {
-        lv_obj_set_style_bg_color(_rows[oldIdx], lv_color_hex(Theme::BG), 0);
-    }
-    if (newIdx >= 0 && newIdx < (int)_rows.size()) {
-        lv_obj_set_style_bg_color(_rows[newIdx], lv_color_hex(Theme::SELECTION_BG), 0);
-        lv_obj_scroll_to_view(_rows[newIdx], LV_ANIM_OFF);
-    }
+    syncVisibleRows();
 }
 
 void LvContactsScreen::rebuildList() {
     if (!_am || !_list) return;
     _rows.clear();
     _contactIndices.clear();
-    lv_obj_clean(_list);
 
     const auto& nodes = _am->nodes();
     for (int i = 0; i < (int)nodes.size(); i++) {
@@ -73,6 +92,7 @@ void LvContactsScreen::rebuildList() {
     if (count == 0) {
         lv_obj_clear_flag(_lblEmpty, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(_list, LV_OBJ_FLAG_HIDDEN);
+        for (int i = 0; i < ROW_POOL_SIZE; i++) lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -82,32 +102,47 @@ void LvContactsScreen::rebuildList() {
     if (_selectedIdx >= count) _selectedIdx = count - 1;
     if (_selectedIdx < 0) _selectedIdx = 0;
 
-    const lv_font_t* font = &lv_font_montserrat_14;
+    syncVisibleRows();
+}
 
-    for (int i = 0; i < count; i++) {
-        const auto& node = nodes[_contactIndices[i]];
-        bool selected = (i == _selectedIdx);
+void LvContactsScreen::syncVisibleRows() {
+    if (!_am || !_list) return;
+    int count = (int)_contactIndices.size();
+    const auto& nodes = _am->nodes();
 
-        lv_obj_t* row = lv_obj_create(_list);
-        lv_obj_set_size(row, Theme::CONTENT_W, 28);
-        lv_obj_set_style_bg_color(row, lv_color_hex(
-            selected ? Theme::SELECTION_BG : Theme::BG), 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(row, lv_color_hex(Theme::BORDER), 0);
-        lv_obj_set_style_border_width(row, 1, 0);
-        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-        lv_obj_set_style_pad_all(row, 0, 0);
-        lv_obj_set_style_radius(row, 0, 0);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    if (count == 0) {
+        for (int i = 0; i < ROW_POOL_SIZE; i++) lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
 
-        // Display name only
-        lv_obj_t* lbl = lv_label_create(row);
-        lv_obj_set_style_text_font(lbl, font, 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(Theme::ACCENT), 0);
-        lv_label_set_text(lbl, node.name.c_str());
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
+    // Compute viewport centered on selection
+    int halfPool = ROW_POOL_SIZE / 2;
+    _viewportStart = _selectedIdx - halfPool;
+    if (_viewportStart < 0) _viewportStart = 0;
+    if (_viewportStart + ROW_POOL_SIZE > count) {
+        _viewportStart = count - ROW_POOL_SIZE;
+        if (_viewportStart < 0) _viewportStart = 0;
+    }
 
-        _rows.push_back(row);
+    for (int i = 0; i < ROW_POOL_SIZE; i++) {
+        int contactIdx = _viewportStart + i;
+        if (contactIdx >= count) {
+            lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+
+        lv_obj_clear_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+        int nodeIdx = _contactIndices[contactIdx];
+        if (nodeIdx < 0 || nodeIdx >= (int)nodes.size()) {
+            lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        const auto& node = nodes[nodeIdx];
+        bool isSelected = (contactIdx == _selectedIdx);
+
+        lv_obj_set_style_bg_color(_poolRows[i], lv_color_hex(
+            isSelected ? Theme::SELECTION_BG : Theme::BG), 0);
+        lv_label_set_text(_poolNameLabels[i], node.name.c_str());
     }
 }
 
@@ -148,17 +183,15 @@ bool LvContactsScreen::handleKey(const KeyEvent& event) {
 
     if (event.up) {
         if (_selectedIdx > 0) {
-            int prev = _selectedIdx;
             _selectedIdx--;
-            updateSelection(prev, _selectedIdx);
+            syncVisibleRows();
         }
         return true;
     }
     if (event.down) {
         if (_selectedIdx < count - 1) {
-            int prev = _selectedIdx;
             _selectedIdx++;
-            updateSelection(prev, _selectedIdx);
+            syncVisibleRows();
         }
         return true;
     }

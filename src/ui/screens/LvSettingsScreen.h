@@ -130,6 +130,7 @@ private:
     bool _textEditing = false;
     String _editText;
     bool _confirmingReset = false;
+    bool _confirmingDevMode = false;
 
     // WiFi picker
     std::vector<WiFiInterface::ScanResult> _wifiResults;

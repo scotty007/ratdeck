@@ -77,7 +77,7 @@ void AudioNotify::writeTone(uint16_t freq, uint16_t durationMs) {
     }
 
     size_t written = 0;
-    i2s_write(I2S_PORT, buf, numSamples * sizeof(int16_t), &written, portMAX_DELAY);
+    i2s_write(I2S_PORT, buf, numSamples * sizeof(int16_t), &written, pdMS_TO_TICKS(200));
     free(buf);
 }
 
@@ -90,7 +90,7 @@ void AudioNotify::writeSilence(uint16_t durationMs) {
     if (!buf) return;
     memset(buf, 0, bufSize);
     size_t written = 0;
-    i2s_write(I2S_PORT, buf, numSamples * sizeof(int16_t), &written, portMAX_DELAY);
+    i2s_write(I2S_PORT, buf, numSamples * sizeof(int16_t), &written, pdMS_TO_TICKS(200));
     free(buf);
 }
 
@@ -201,11 +201,11 @@ void AudioNotify::playBoot() {
 
     // Write entire sequence at once for seamless playback
     size_t written = 0;
-    i2s_write(I2S_PORT, buf, pos * sizeof(int16_t), &written, portMAX_DELAY);
+    i2s_write(I2S_PORT, buf, pos * sizeof(int16_t), &written, pdMS_TO_TICKS(200));
 
     // Flush with silence
     memset(buf, 0, 512 * sizeof(int16_t));
-    i2s_write(I2S_PORT, buf, 512 * sizeof(int16_t), &written, portMAX_DELAY);
+    i2s_write(I2S_PORT, buf, 512 * sizeof(int16_t), &written, pdMS_TO_TICKS(200));
 
     free(buf);
 }

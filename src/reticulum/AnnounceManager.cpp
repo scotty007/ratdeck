@@ -173,6 +173,17 @@ void AnnounceManager::received_announce(
         if (nc == _nameCache.end() || nc->second != name) {
             _nameCache[destHex] = name;
             _nameCacheDirty = true;
+            // Cap name cache size: prune entries not in _nodes or saved contacts
+            if ((int)_nameCache.size() > MAX_NAME_CACHE) {
+                for (auto it = _nameCache.begin(); it != _nameCache.end() && (int)_nameCache.size() > MAX_NAME_CACHE; ) {
+                    RNS::Bytes h; h.assignHex(it->first.c_str());
+                    if (!findNode(h)) {
+                        it = _nameCache.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
         }
     }
 

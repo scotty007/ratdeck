@@ -71,6 +71,7 @@ private:
     unsigned int _globalAnnounceCount = 0;
     static constexpr unsigned int MAX_GLOBAL_ANNOUNCES_PER_SEC = 10;
     static constexpr int MAX_NODES = 200;
+    static constexpr int MAX_NAME_CACHE = 300;
     static constexpr unsigned long CONTACT_SAVE_INTERVAL_MS = 30000;
     static constexpr unsigned long ANNOUNCE_MIN_INTERVAL_MS = 200;  // Rate-limit announce processing
 

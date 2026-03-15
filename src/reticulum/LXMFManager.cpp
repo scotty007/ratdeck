@@ -18,16 +18,21 @@ bool LXMFManager::begin(ReticulumManager* rns, MessageStore* store) {
 void LXMFManager::loop() {
     if (_outQueue.empty()) return;
     unsigned long now = millis();
+    int processed = 0;
 
-    for (auto it = _outQueue.begin(); it != _outQueue.end(); ++it) {
+    for (auto it = _outQueue.begin(); it != _outQueue.end(); ) {
+        // Time-budgeted: process up to 3 messages within 10ms
+        if (processed >= 3 || (processed > 0 && millis() - now >= 10)) break;
+
         LXMFMessage& msg = *it;
 
         // Per-message retry cooldown: 2 seconds between attempts
-        if (msg.retries > 0 && (now - msg.lastRetryMs) < 2000) continue;
+        if (msg.retries > 0 && (millis() - msg.lastRetryMs) < 2000) { ++it; continue; }
 
-        msg.lastRetryMs = now;
+        msg.lastRetryMs = millis();
 
         if (sendDirect(msg)) {
+            processed++;
             Serial.printf("[LXMF] Queue drain: status=%s dest=%s\n",
                           msg.statusStr(), msg.destHash.toHex().substr(0, 8).c_str());
 
@@ -42,10 +47,11 @@ void LXMFManager::loop() {
             if (_statusCb) {
                 _statusCb(peerHex, msg.timestamp, msg.status);
             }
-            _outQueue.erase(it);
-            return;  // One send per loop() call to avoid hogging CPU
+            it = _outQueue.erase(it);
+        } else {
+            // sendDirect returned false — message stays in queue, try next
+            ++it;
         }
-        // sendDirect returned false — message stays in queue, try next
     }
 }
 

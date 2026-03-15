@@ -145,4 +145,8 @@ private:
     float _loraSymbolTimeMs = 0;
 
     static SX1262* _instance;
+
+public:
+    // Interrupt-driven RX availability flag (set by DIO1 ISR)
+    volatile bool packetAvailable = false;
 };

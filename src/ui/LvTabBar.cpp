@@ -60,22 +60,28 @@ void LvTabBar::cycleTab(int direction) {
 
 void LvTabBar::setUnreadCount(int tab, int count) {
     if (tab < 0 || tab >= TAB_COUNT) return;
+    if (_unread[tab] == count) return;  // No change
     _unread[tab] = count;
-    refreshTabs();
+    refreshTab(tab);
+}
+
+void LvTabBar::refreshTab(int idx) {
+    if (idx < 0 || idx >= TAB_COUNT || !_tabs[idx]) return;
+    bool active = (idx == _activeTab);
+    lv_obj_set_style_text_color(_tabs[idx],
+        lv_color_hex(active ? Theme::TAB_ACTIVE : Theme::TAB_INACTIVE), 0);
+
+    char buf[24];
+    if (_unread[idx] > 0) {
+        snprintf(buf, sizeof(buf), "%s(%d)", TAB_NAMES[idx], _unread[idx]);
+    } else {
+        snprintf(buf, sizeof(buf), "%s", TAB_NAMES[idx]);
+    }
+    lv_label_set_text(_tabs[idx], buf);
 }
 
 void LvTabBar::refreshTabs() {
     for (int i = 0; i < TAB_COUNT; i++) {
-        bool active = (i == _activeTab);
-        lv_obj_set_style_text_color(_tabs[i],
-            lv_color_hex(active ? Theme::TAB_ACTIVE : Theme::TAB_INACTIVE), 0);
-
-        char buf[24];
-        if (_unread[i] > 0) {
-            snprintf(buf, sizeof(buf), "%s(%d)", TAB_NAMES[i], _unread[i]);
-        } else {
-            snprintf(buf, sizeof(buf), "%s", TAB_NAMES[i]);
-        }
-        lv_label_set_text(_tabs[i], buf);
+        refreshTab(i);
     }
 }

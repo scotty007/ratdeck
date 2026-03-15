@@ -43,6 +43,8 @@ private:
     unsigned long _lastRefreshMs = 0;
     std::vector<LXMFMessage> _cachedMsgs;
 
+    void updateMessageStatus(int msgIdx, LXMFStatus status);
+
     // LVGL widgets
     lv_obj_t* _header = nullptr;
     lv_obj_t* _lblHeader = nullptr;
@@ -50,6 +52,10 @@ private:
     lv_obj_t* _inputRow = nullptr;
     lv_obj_t* _textarea = nullptr;
     lv_obj_t* _btnSend = nullptr;
+
+    // Per-message status labels for partial updates (avoids full rebuild)
+    std::vector<lv_obj_t*> _statusLabels;
+    std::vector<lv_obj_t*> _textLabels;
 
     static constexpr unsigned long REFRESH_INTERVAL_MS = 2000;  // Check for new messages every 2s
 };

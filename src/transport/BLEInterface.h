@@ -62,7 +62,9 @@ private:
     bool _rxActive = false;
 
     // Queued incoming frames (written by BLE callback, consumed by loop)
+    // Protected by mutex: onWrite() runs in NimBLE host task, loop() on main task
     std::vector<std::vector<uint8_t>> _incomingFrames;
+    SemaphoreHandle_t _framesMutex = nullptr;
 
     class BLESideband* _sideband = nullptr;
 

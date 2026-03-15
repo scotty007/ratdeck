@@ -15,6 +15,7 @@ BLEInterface::~BLEInterface() {
 }
 
 bool BLEInterface::start() {
+    _framesMutex = xSemaphoreCreateMutex();
     NimBLEDevice::init("Ratdeck");
     NimBLEDevice::setMTU(512);
 
@@ -87,8 +88,11 @@ void BLEInterface::onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo
 void BLEInterface::processRxByte(uint8_t b) {
     if (b == FRAME_START) {
         if (_rxActive && !_rxFrame.empty()) {
-            // Complete frame received — queue it
-            _incomingFrames.push_back(std::move(_rxFrame));
+            // Complete frame received — queue it (mutex: called from NimBLE task)
+            if (_framesMutex && xSemaphoreTake(_framesMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                _incomingFrames.push_back(std::move(_rxFrame));
+                xSemaphoreGive(_framesMutex);
+            }
             _rxFrame.clear();
         }
         _rxActive = true;
@@ -114,14 +118,18 @@ void BLEInterface::processRxByte(uint8_t b) {
 void BLEInterface::loop() {
     if (!_active) return;
 
-    // Process queued incoming frames
-    while (!_incomingFrames.empty()) {
-        auto frame = std::move(_incomingFrames.front());
-        _incomingFrames.erase(_incomingFrames.begin());
+    // Process queued incoming frames (mutex: _incomingFrames shared with NimBLE task)
+    if (_framesMutex && xSemaphoreTake(_framesMutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+        // Swap to local to minimize lock hold time
+        std::vector<std::vector<uint8_t>> localFrames;
+        localFrames.swap(_incomingFrames);
+        xSemaphoreGive(_framesMutex);
 
-        if (!frame.empty()) {
-            RNS::Bytes data(frame.data(), frame.size());
-            handle_incoming(data);
+        for (auto& frame : localFrames) {
+            if (!frame.empty()) {
+                RNS::Bytes data(frame.data(), frame.size());
+                handle_incoming(data);
+            }
         }
     }
 }

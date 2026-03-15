@@ -28,6 +28,7 @@ public:
     enum State { ACTIVE, DIMMED, SCREEN_OFF };
     State state() const { return _state; }
     bool isScreenOn() const { return _state != SCREEN_OFF; }
+    bool isDimmed() const { return _state == DIMMED; }
 
 private:
     void setState(State newState);

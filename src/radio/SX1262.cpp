@@ -386,6 +386,16 @@ void SX1262::receive(int size) {
         explicitHeaderMode();
     }
 
+    // Set up DIO1 interrupt for RX done (enables packetAvailable flag)
+    if (!_onReceive) {
+        pinMode(_irq, INPUT);
+        uint8_t irqBuf[8] = {0xFF, 0xFF, 0x00, IRQ_RX_DONE_MASK_6X, 0x00, 0x00, 0x00, 0x00};
+        executeOpcode(OP_SET_IRQ_FLAGS_6X, irqBuf, 8);
+        attachInterrupt(digitalPinToInterrupt(_irq), onDio0Rise, RISING);
+    }
+
+    packetAvailable = false;
+
     if (_rxen != -1) { rxAntEnable(); }
     uint8_t mode[3] = {0xFF, 0xFF, 0xFF};
     executeOpcode(OP_RX_6X, mode, 3);
@@ -688,7 +698,10 @@ float SX1262::getAirtime(uint16_t written) {
 }
 
 void IRAM_ATTR SX1262::onDio0Rise() {
-    if (_instance) { _instance->handleDio0Rise(); }
+    if (_instance) {
+        _instance->packetAvailable = true;
+        _instance->handleDio0Rise();
+    }
 }
 
 void SX1262::handleDio0Rise() {

@@ -25,6 +25,7 @@ public:
 
 private:
     void rebuildList();
+    void syncVisibleRows();
     void updateSelection(int oldIdx, int newIdx);
 
     AnnounceManager* _am = nullptr;
@@ -33,9 +34,15 @@ private:
     bool _confirmDelete = false;
     int _lastContactCount = -1;
     int _selectedIdx = 0;
+    int _viewportStart = 0;
     std::vector<int> _contactIndices; // Maps row -> node index in _am->nodes()
 
     lv_obj_t* _list = nullptr;
     lv_obj_t* _lblEmpty = nullptr;
     std::vector<lv_obj_t*> _rows;
+
+    // Object pool
+    static constexpr int ROW_POOL_SIZE = 10;
+    lv_obj_t* _poolRows[ROW_POOL_SIZE] = {};
+    lv_obj_t* _poolNameLabels[ROW_POOL_SIZE] = {};
 };

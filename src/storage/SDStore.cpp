@@ -33,6 +33,17 @@ bool SDStore::begin(SPIClass* spi, int csPin) {
     if (cardType == CARD_SDHC) typeStr = "SDHC";
 
     _ready = true;
+
+    // Increase SPI speed for faster I/O after stable mount at 4MHz
+    SD.end();
+    if (!SD.begin(csPin, *spi, 16000000)) {
+        // 16MHz failed, fall back to 4MHz
+        SD.begin(csPin, *spi, 4000000);
+        Serial.println("[SD] 16MHz failed, using 4MHz");
+    } else {
+        Serial.println("[SD] SPI speed: 16MHz");
+    }
+
     Serial.printf("[SD] %s card ready, total=%llu MB, used=%llu MB\n",
                   typeStr, totalBytes() / (1024 * 1024), usedBytes() / (1024 * 1024));
     return true;

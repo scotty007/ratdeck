@@ -59,6 +59,7 @@ bool UserConfig::parseJson(const String& json) {
     _settings.audioVolume  = doc["audio_vol"] | 80;
 
     _settings.displayName = doc["display_name"] | "";
+    _settings.devMode     = doc["dev_mode"]     | false;
 
     Serial.println("[CONFIG] Settings loaded");
     return true;
@@ -100,6 +101,7 @@ String UserConfig::serializeToJson() const {
     doc["audio_vol"] = _settings.audioVolume;
 
     doc["display_name"] = _settings.displayName;
+    doc["dev_mode"]     = _settings.devMode;
 
     String json;
     serializeJson(doc, json);

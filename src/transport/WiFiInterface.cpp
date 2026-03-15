@@ -192,6 +192,45 @@ std::vector<WiFiInterface::ScanResult> WiFiInterface::scanNetworks(int maxResult
     return results;
 }
 
+void WiFiInterface::startAsyncScan() {
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true, false, false, 300, 0);  // async=true
+    Serial.println("[WIFI] Async scan started");
+}
+
+bool WiFiInterface::isScanComplete() {
+    int result = WiFi.scanComplete();
+    return result != WIFI_SCAN_RUNNING;
+}
+
+std::vector<WiFiInterface::ScanResult> WiFiInterface::getScanResults(int maxResults) {
+    std::vector<ScanResult> results;
+    int n = WiFi.scanComplete();
+    if (n <= 0) return results;
+
+    for (int i = 0; i < n; i++) {
+        String ssid = WiFi.SSID(i);
+        if (ssid.isEmpty()) continue;
+        int rssi = WiFi.RSSI(i);
+        bool enc = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+        bool found = false;
+        for (auto& r : results) {
+            if (r.ssid == ssid) {
+                if (rssi > r.rssi) r.rssi = rssi;
+                found = true;
+                break;
+            }
+        }
+        if (!found) results.push_back({ssid, rssi, enc});
+    }
+    WiFi.scanDelete();
+    std::sort(results.begin(), results.end(),
+              [](const ScanResult& a, const ScanResult& b) { return a.rssi > b.rssi; });
+    if ((int)results.size() > maxResults) results.resize(maxResults);
+    Serial.printf("[WIFI] Async scan: %d networks found\n", (int)results.size());
+    return results;
+}
+
 // HDLC-like framing: [0x7E] [escaped data] [0x7E]
 void WiFiInterface::sendFrame(WiFiClient& client, const uint8_t* data, size_t len) {
     client.write(FRAME_START);

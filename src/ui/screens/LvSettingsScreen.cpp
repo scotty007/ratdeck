@@ -165,6 +165,39 @@ void LvSettingsScreen::buildItems() {
         _items.push_back(newId);
         idx++;
     }
+    {
+        SettingItem devModeItem;
+        devModeItem.label = "Developer Mode";
+        devModeItem.type = SettingType::ACTION;
+        devModeItem.formatter = [&s](int) { return s.devMode ? String("ON") : String("OFF"); };
+        devModeItem.action = [this, &s]() {
+            if (s.devMode) {
+                // Already on — just turn it off
+                s.devMode = false;
+                _confirmingDevMode = false;
+                applyAndSave();
+                buildItems();
+                enterCategory(_categoryIdx);
+                if (_ui) _ui->lvStatusBar().showToast("Developer mode OFF", 1200);
+                return;
+            }
+            if (!_confirmingDevMode) {
+                _confirmingDevMode = true;
+                if (_ui) _ui->lvStatusBar().showToast("WARNING: KNOW YOUR LAWS! Enter=Enable", 5000);
+                rebuildItemList();
+                return;
+            }
+            // Confirmed
+            _confirmingDevMode = false;
+            s.devMode = true;
+            applyAndSave();
+            buildItems();
+            enterCategory(_categoryIdx);
+            if (_ui) _ui->lvStatusBar().showToast("Developer mode ON", 1200);
+        };
+        _items.push_back(devModeItem);
+        idx++;
+    }
     _categories.push_back({"Device", devStart, idx - devStart,
         [&s]() { return s.displayName.isEmpty() ? String("(unnamed)") : s.displayName; }});
 
@@ -202,48 +235,47 @@ void LvSettingsScreen::buildItems() {
         _items.push_back(presetItem);
         idx++;
     }
-    _items.push_back({"Frequency", SettingType::ENUM_CHOICE,
-        [&s]() {
-            if (s.loraFrequency <= 868000000) return 0;
-            if (s.loraFrequency <= 906000000) return 1;
-            if (s.loraFrequency <= 915000000) return 2;
-            return 3;
-        },
-        [&s](int v) {
-            static const uint32_t freqs[] = {868000000, 906000000, 915000000, 923000000};
-            s.loraFrequency = freqs[constrain(v, 0, 3)];
-        },
-        nullptr, 0, 3, 1, {"868 MHz", "906 MHz", "915 MHz", "923 MHz"}});
-    idx++;
-    _items.push_back({"TX Power", SettingType::INTEGER,
-        [&s]() { return s.loraTxPower; }, [&s](int v) { s.loraTxPower = v; },
-        [](int v) { return String(v) + " dBm"; }, -9, 22, 1});
-    idx++;
-    _items.push_back({"Spread Factor", SettingType::INTEGER,
-        [&s]() { return s.loraSF; }, [&s](int v) { s.loraSF = v; },
-        [](int v) { return String("SF") + String(v); }, 5, 12, 1});
-    idx++;
-    _items.push_back({"Bandwidth", SettingType::ENUM_CHOICE,
-        [&s]() {
-            if (s.loraBW <= 62500)  return 0;
-            if (s.loraBW <= 125000) return 1;
-            if (s.loraBW <= 250000) return 2;
-            return 3;
-        },
-        [&s](int v) {
-            static const uint32_t bws[] = {62500, 125000, 250000, 500000};
-            s.loraBW = bws[constrain(v, 0, 3)];
-        },
-        nullptr, 0, 3, 1, {"62.5k", "125k", "250k", "500k"}});
-    idx++;
-    _items.push_back({"Coding Rate", SettingType::INTEGER,
-        [&s]() { return s.loraCR; }, [&s](int v) { s.loraCR = v; },
-        [](int v) { return String("4/") + String(v); }, 5, 8, 1});
-    idx++;
-    _items.push_back({"Preamble", SettingType::INTEGER,
-        [&s]() { return (int)s.loraPreamble; }, [&s](int v) { s.loraPreamble = v; },
-        [](int v) { return String(v); }, 6, 65, 1});
-    idx++;
+    // Custom radio parameters — only visible in Developer Mode
+    if (s.devMode) {
+        _items.push_back({"Frequency", SettingType::INTEGER,
+            [&s]() { return (int)(s.loraFrequency / 1000); },
+            [&s](int v) { s.loraFrequency = (uint32_t)v * 1000; },
+            [](int v) -> String {
+                char buf[16]; snprintf(buf, sizeof(buf), "%d.%03d MHz", v / 1000, v % 1000);
+                return String(buf);
+            },
+            137000, 1020000, 125});
+        idx++;
+        _items.push_back({"TX Power", SettingType::INTEGER,
+            [&s]() { return s.loraTxPower; }, [&s](int v) { s.loraTxPower = v; },
+            [](int v) { return String(v) + " dBm"; }, -9, 22, 1});
+        idx++;
+        _items.push_back({"Spread Factor", SettingType::INTEGER,
+            [&s]() { return s.loraSF; }, [&s](int v) { s.loraSF = v; },
+            [](int v) { return String("SF") + String(v); }, 5, 12, 1});
+        idx++;
+        _items.push_back({"Bandwidth", SettingType::ENUM_CHOICE,
+            [&s]() {
+                if (s.loraBW <= 62500)  return 0;
+                if (s.loraBW <= 125000) return 1;
+                if (s.loraBW <= 250000) return 2;
+                return 3;
+            },
+            [&s](int v) {
+                static const uint32_t bws[] = {62500, 125000, 250000, 500000};
+                s.loraBW = bws[constrain(v, 0, 3)];
+            },
+            nullptr, 0, 3, 1, {"62.5k", "125k", "250k", "500k"}});
+        idx++;
+        _items.push_back({"Coding Rate", SettingType::INTEGER,
+            [&s]() { return s.loraCR; }, [&s](int v) { s.loraCR = v; },
+            [](int v) { return String("4/") + String(v); }, 5, 8, 1});
+        idx++;
+        _items.push_back({"Preamble", SettingType::INTEGER,
+            [&s]() { return (int)s.loraPreamble; }, [&s](int v) { s.loraPreamble = v; },
+            [](int v) { return String(v); }, 6, 65, 1});
+        idx++;
+    }
     _categories.push_back({"Radio", radioStart, idx - radioStart,
         [this]() { int p = detectPreset(); return (p >= 0) ? String(LV_PRESETS[p].name) : String("Custom"); }});
 
@@ -590,6 +622,7 @@ void LvSettingsScreen::onEnter() {
     _editing = false;
     _textEditing = false;
     _confirmingReset = false;
+    _confirmingDevMode = false;
     rebuildCategoryList();
 }
 
@@ -901,6 +934,7 @@ void LvSettingsScreen::exitToCategories() {
     _editing = false;
     _textEditing = false;
     _confirmingReset = false;
+    _confirmingDevMode = false;
     rebuildCategoryList();
 }
 

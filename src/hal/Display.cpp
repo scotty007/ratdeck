@@ -33,8 +33,8 @@ void Display::beginLVGL() {
 
     lv_init();
 
-    // Allocate double-buffered 10-line strips in PSRAM
-    const uint32_t bufSize = 320 * 10;
+    // Allocate double-buffered 20-line strips in PSRAM (halves DMA flush ops per redraw)
+    const uint32_t bufSize = 320 * 20;
     s_buf1 = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     s_buf2 = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
 
@@ -58,7 +58,7 @@ void Display::beginLVGL() {
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
-    Serial.println("[LVGL] Display driver registered (320x240, double-buffered 10-line DMA)");
+    Serial.println("[LVGL] Display driver registered (320x240, double-buffered 20-line DMA)");
 }
 
 void Display::setBrightness(uint8_t level) {

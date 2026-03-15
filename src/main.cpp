@@ -122,7 +122,7 @@ unsigned long loopCycleStart = 0;
 unsigned long maxLoopTime = 0;
 unsigned long lastLvglTime = 0;
 constexpr unsigned long LVGL_INTERVAL_MS = 33;          // ~30 FPS
-constexpr unsigned long TCP_GLOBAL_BUDGET_MS = 18;      // Max cumulative TCP time per loop
+constexpr unsigned long TCP_GLOBAL_BUDGET_MS = 35;      // Max cumulative TCP time per loop
 bool wifiDeferredAnnounce = false;
 unsigned long wifiConnectedAt = 0;
 
@@ -238,24 +238,28 @@ void onHotkeyDiag() {
     Serial.println("=======================");
 }
 
+// RSSI monitor — non-blocking state machine (sampled in main loop)
 volatile bool rssiMonitorActive = false;
+unsigned long rssiMonitorStart = 0;
+unsigned long rssiLastSample = 0;
+int rssiMinVal = 0, rssiMaxVal = -200, rssiSampleCount = 0;
+
 void onHotkeyRssiMonitor() {
     if (!radioOnline) { Serial.println("[RSSI] Radio offline"); return; }
-    Serial.println("[RSSI] Sampling for 5 seconds...");
-    rssiMonitorActive = true;
-    int minRssi = 0, maxRssi = -200;
-    unsigned long start = millis();
-    int samples = 0;
-    while (millis() - start < 5000) {
-        int rssi = radio.currentRssi();
-        if (rssi < minRssi) minRssi = rssi;
-        if (rssi > maxRssi) maxRssi = rssi;
-        samples++;
-        Serial.printf("[RSSI] %d dBm\n", rssi);
-        delay(100);
+    if (rssiMonitorActive) {
+        // Already running — cancel
+        rssiMonitorActive = false;
+        Serial.printf("[RSSI] Stopped: %d samples, min=%d max=%d dBm\n",
+                      rssiSampleCount, rssiMinVal, rssiMaxVal);
+        return;
     }
-    rssiMonitorActive = false;
-    Serial.printf("[RSSI] Done: %d samples, min=%d max=%d dBm\n", samples, minRssi, maxRssi);
+    Serial.println("[RSSI] Sampling for 5 seconds (non-blocking)...");
+    rssiMonitorActive = true;
+    rssiMonitorStart = millis();
+    rssiLastSample = 0;
+    rssiMinVal = 0;
+    rssiMaxVal = -200;
+    rssiSampleCount = 0;
 }
 
 void onHotkeyRadioTest() {
@@ -637,11 +641,11 @@ void setup() {
     audio.begin();
 
     // Boot complete — transition to Home screen
-    delay(200);
+    // Yield to LVGL instead of blocking delay
+    lvBootScreen.setProgress(0.98f, "Ready");
+    for (int i = 0; i < 6; i++) { lv_timer_handler(); delay(1); }
     lvBootScreen.setProgress(1.0f, "Ready");
-    // (LVGL boot renders via lv_timer_handler in setProgress)
     audio.playBoot();
-    delay(400);
 
     bootComplete = true;
     ui.statusBar().setTransportMode("RatDeck");
@@ -879,10 +883,11 @@ void loop() {
         }
     }
 
-    // 3. LVGL timer handler — throttled to ~30 FPS
+    // 3. LVGL timer handler — 30 FPS active, 5 FPS dimmed
     {
         unsigned long now = millis();
-        if (powerMgr.isScreenOn() && now - lastLvglTime >= LVGL_INTERVAL_MS) {
+        unsigned long lvglInterval = powerMgr.isDimmed() ? 200 : LVGL_INTERVAL_MS;
+        if (powerMgr.isScreenOn() && now - lastLvglTime >= lvglInterval) {
             lastLvglTime = now;
             lv_timer_handler();
         }
@@ -1004,6 +1009,23 @@ void loop() {
     // 12. Render any dirty regions
     if (powerMgr.isScreenOn()) {
         ui.render();
+    }
+
+    // 12.5. RSSI monitor (non-blocking, one sample per loop iteration)
+    if (rssiMonitorActive && radioOnline) {
+        unsigned long now = millis();
+        if (now - rssiMonitorStart >= 5000) {
+            rssiMonitorActive = false;
+            Serial.printf("[RSSI] Done: %d samples, min=%d max=%d dBm\n",
+                          rssiSampleCount, rssiMinVal, rssiMaxVal);
+        } else if (now - rssiLastSample >= 100) {
+            rssiLastSample = now;
+            int rssi = radio.currentRssi();
+            if (rssi < rssiMinVal) rssiMinVal = rssi;
+            if (rssi > rssiMaxVal) rssiMaxVal = rssi;
+            rssiSampleCount++;
+            Serial.printf("[RSSI] %d dBm\n", rssi);
+        }
     }
 
     // 13. Heartbeat for crash diagnosis

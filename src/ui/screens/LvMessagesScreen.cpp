@@ -32,6 +32,62 @@ void LvMessagesScreen::createUI(lv_obj_t* parent) {
     lv_obj_set_layout(_list, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(_list, LV_FLEX_FLOW_COLUMN);
 
+    // Pre-allocate row pool (following LvNodesScreen pattern)
+    const lv_font_t* nameFont = &lv_font_montserrat_14;
+    const lv_font_t* smallFont = &lv_font_montserrat_12;
+
+    for (int i = 0; i < ROW_POOL_SIZE; i++) {
+        lv_obj_t* row = lv_obj_create(_list);
+        lv_obj_set_size(row, Theme::CONTENT_W, 38);
+        lv_obj_set_style_bg_color(row, lv_color_hex(Theme::BG), 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(Theme::BORDER), 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_style_radius(row, 0, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+
+        // Unread dot
+        lv_obj_t* dot = lv_obj_create(row);
+        lv_obj_set_size(dot, 6, 6);
+        lv_obj_set_style_radius(dot, 3, 0);
+        lv_obj_set_style_bg_color(dot, lv_color_hex(Theme::PRIMARY), 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(dot, 0, 0);
+        lv_obj_set_style_pad_all(dot, 0, 0);
+        lv_obj_set_pos(dot, 5, 8);
+        lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+
+        // Name label (line 1)
+        lv_obj_t* nameLbl = lv_label_create(row);
+        lv_obj_set_style_text_font(nameLbl, nameFont, 0);
+        lv_obj_set_style_text_color(nameLbl, lv_color_hex(Theme::PRIMARY), 0);
+        lv_label_set_text(nameLbl, "");
+        lv_obj_align(nameLbl, LV_ALIGN_TOP_LEFT, 14, 2);
+
+        // Time label (line 1, right)
+        lv_obj_t* timeLbl = lv_label_create(row);
+        lv_obj_set_style_text_font(timeLbl, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_color(timeLbl, lv_color_hex(Theme::MUTED), 0);
+        lv_label_set_text(timeLbl, "");
+        lv_obj_align(timeLbl, LV_ALIGN_TOP_RIGHT, -4, 4);
+
+        // Preview label (line 2)
+        lv_obj_t* prevLbl = lv_label_create(row);
+        lv_obj_set_style_text_font(prevLbl, smallFont, 0);
+        lv_obj_set_style_text_color(prevLbl, lv_color_hex(Theme::MUTED), 0);
+        lv_label_set_text(prevLbl, "");
+        lv_obj_align(prevLbl, LV_ALIGN_BOTTOM_LEFT, 14, -4);
+
+        _poolRows[i] = row;
+        _poolDots[i] = dot;
+        _poolNameLabels[i] = nameLbl;
+        _poolTimeLabels[i] = timeLbl;
+        _poolPreviewLabels[i] = prevLbl;
+    }
+
     _lastConvCount = -1;
     rebuildList();
 }
@@ -39,6 +95,7 @@ void LvMessagesScreen::createUI(lv_obj_t* parent) {
 void LvMessagesScreen::onEnter() {
     _lastConvCount = -1;
     _selectedIdx = 0;
+    _viewportStart = 0;
     rebuildList();
 }
 
@@ -51,15 +108,9 @@ void LvMessagesScreen::refreshUI() {
     }
 }
 
-// Update only the selection highlight without rebuilding widgets
+// Update only the selection highlight via pool sync
 void LvMessagesScreen::updateSelection(int oldIdx, int newIdx) {
-    if (oldIdx >= 0 && oldIdx < (int)_rows.size()) {
-        lv_obj_set_style_bg_color(_rows[oldIdx], lv_color_hex(Theme::BG), 0);
-    }
-    if (newIdx >= 0 && newIdx < (int)_rows.size()) {
-        lv_obj_set_style_bg_color(_rows[newIdx], lv_color_hex(Theme::SELECTION_BG), 0);
-        lv_obj_scroll_to_view(_rows[newIdx], LV_ANIM_OFF);
-    }
+    syncVisibleRows();
 }
 
 void LvMessagesScreen::rebuildList() {
@@ -69,30 +120,21 @@ void LvMessagesScreen::rebuildList() {
     int count = (int)convs.size();
     _lastConvCount = count;
     _lastUnreadTotal = _lxmf->unreadCount();
-    _rows.clear();
     _sortedPeers.clear();
-    lv_obj_clean(_list);
+    _sortedConvs.clear();
 
     if (count == 0) {
         lv_obj_clear_flag(_lblEmpty, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(_list, LV_OBJ_FLAG_HIDDEN);
+        for (int i = 0; i < ROW_POOL_SIZE; i++) lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
     lv_obj_add_flag(_lblEmpty, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(_list, LV_OBJ_FLAG_HIDDEN);
 
-    // Build conversation info for sorting by most recent
-    struct ConvInfo {
-        std::string peerHex;
-        double lastTs = 0;
-        std::string preview;
-        bool hasUnread = false;
-    };
-
-    std::vector<ConvInfo> sorted;
-    sorted.reserve(count);
-
+    // Build sorted conversation info
+    _sortedConvs.reserve(count);
     for (int i = 0; i < count; i++) {
         ConvInfo ci;
         ci.peerHex = convs[i];
@@ -102,85 +144,85 @@ void LvMessagesScreen::rebuildList() {
             ci.preview = s->lastPreview;
             ci.hasUnread = s->unreadCount > 0;
         }
-        sorted.push_back(ci);
+        // Resolve display name
+        std::string peerName;
+        if (_am) peerName = _am->lookupName(ci.peerHex);
+        ci.displayName = !peerName.empty() ? peerName.substr(0, 15) : ci.peerHex.substr(0, 12);
+        _sortedConvs.push_back(ci);
     }
 
-    std::sort(sorted.begin(), sorted.end(), [](const ConvInfo& a, const ConvInfo& b) {
+    std::sort(_sortedConvs.begin(), _sortedConvs.end(), [](const ConvInfo& a, const ConvInfo& b) {
         return a.lastTs > b.lastTs;
     });
 
-    for (auto& ci : sorted) _sortedPeers.push_back(ci.peerHex);
+    for (auto& ci : _sortedConvs) _sortedPeers.push_back(ci.peerHex);
 
     if (_selectedIdx >= count) _selectedIdx = count - 1;
     if (_selectedIdx < 0) _selectedIdx = 0;
 
-    const lv_font_t* nameFont = &lv_font_montserrat_14;
-    const lv_font_t* smallFont = &lv_font_montserrat_12;
+    syncVisibleRows();
+}
 
-    for (int i = 0; i < (int)sorted.size(); i++) {
-        const auto& ci = sorted[i];
+void LvMessagesScreen::syncVisibleRows() {
+    if (!_list) return;
+    int count = (int)_sortedConvs.size();
 
-        lv_obj_t* row = lv_obj_create(_list);
-        lv_obj_set_size(row, Theme::CONTENT_W, 38);
-        lv_obj_set_style_bg_color(row, lv_color_hex(
-            i == _selectedIdx ? Theme::SELECTION_BG : Theme::BG), 0);
-        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(row, lv_color_hex(Theme::BORDER), 0);
-        lv_obj_set_style_border_width(row, 1, 0);
-        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
-        lv_obj_set_style_pad_all(row, 0, 0);
-        lv_obj_set_style_radius(row, 0, 0);
-        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    if (count == 0) {
+        for (int i = 0; i < ROW_POOL_SIZE; i++) lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
 
-        // Green dot for unread
-        if (ci.hasUnread) {
-            lv_obj_t* dot = lv_obj_create(row);
-            lv_obj_set_size(dot, 6, 6);
-            lv_obj_set_style_radius(dot, 3, 0);
-            lv_obj_set_style_bg_color(dot, lv_color_hex(Theme::PRIMARY), 0);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(dot, 0, 0);
-            lv_obj_set_style_pad_all(dot, 0, 0);
-            lv_obj_set_pos(dot, 5, 8);
+    // Compute viewport centered on selection
+    int halfPool = ROW_POOL_SIZE / 2;
+    _viewportStart = _selectedIdx - halfPool;
+    if (_viewportStart < 0) _viewportStart = 0;
+    if (_viewportStart + ROW_POOL_SIZE > count) {
+        _viewportStart = count - ROW_POOL_SIZE;
+        if (_viewportStart < 0) _viewportStart = 0;
+    }
+
+    for (int i = 0; i < ROW_POOL_SIZE; i++) {
+        int convIdx = _viewportStart + i;
+        if (convIdx >= count) {
+            lv_obj_add_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
         }
 
-        // Peer name (line 1)
-        std::string peerName;
-        if (_am) peerName = _am->lookupName(ci.peerHex);
-        std::string displayName = !peerName.empty() ?
-            peerName.substr(0, 15) : ci.peerHex.substr(0, 12);
+        lv_obj_clear_flag(_poolRows[i], LV_OBJ_FLAG_HIDDEN);
+        const auto& ci = _sortedConvs[convIdx];
+        bool isSelected = (convIdx == _selectedIdx);
 
-        lv_obj_t* nameLbl = lv_label_create(row);
-        lv_obj_set_style_text_font(nameLbl, nameFont, 0);
-        lv_obj_set_style_text_color(nameLbl, lv_color_hex(Theme::PRIMARY), 0);
-        lv_label_set_text(nameLbl, displayName.c_str());
-        lv_obj_align(nameLbl, LV_ALIGN_TOP_LEFT, 14, 2);
+        // Selection highlight
+        lv_obj_set_style_bg_color(_poolRows[i], lv_color_hex(
+            isSelected ? Theme::SELECTION_BG : Theme::BG), 0);
 
-        // Timestamp (line 1, right)
+        // Unread dot
+        if (ci.hasUnread) {
+            lv_obj_clear_flag(_poolDots[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(_poolDots[i], LV_OBJ_FLAG_HIDDEN);
+        }
+
+        // Name
+        lv_label_set_text(_poolNameLabels[i], ci.displayName.c_str());
+
+        // Time
         if (ci.lastTs > 1700000000) {
             time_t t = (time_t)ci.lastTs;
             struct tm* tm = localtime(&t);
             if (tm) {
                 char timeBuf[8];
                 snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", tm->tm_hour, tm->tm_min);
-                lv_obj_t* timeLbl = lv_label_create(row);
-                lv_obj_set_style_text_font(timeLbl, &lv_font_montserrat_10, 0);
-                lv_obj_set_style_text_color(timeLbl, lv_color_hex(Theme::MUTED), 0);
-                lv_label_set_text(timeLbl, timeBuf);
-                lv_obj_align(timeLbl, LV_ALIGN_TOP_RIGHT, -4, 4);
+                lv_label_set_text(_poolTimeLabels[i], timeBuf);
+            } else {
+                lv_label_set_text(_poolTimeLabels[i], "");
             }
+        } else {
+            lv_label_set_text(_poolTimeLabels[i], "");
         }
 
-        // Preview (line 2)
-        if (!ci.preview.empty()) {
-            lv_obj_t* prevLbl = lv_label_create(row);
-            lv_obj_set_style_text_font(prevLbl, smallFont, 0);
-            lv_obj_set_style_text_color(prevLbl, lv_color_hex(Theme::MUTED), 0);
-            lv_label_set_text(prevLbl, ci.preview.c_str());
-            lv_obj_align(prevLbl, LV_ALIGN_BOTTOM_LEFT, 14, -4);
-        }
-
-        _rows.push_back(row);
+        // Preview
+        lv_label_set_text(_poolPreviewLabels[i], ci.preview.c_str());
     }
 }
 
@@ -276,7 +318,7 @@ bool LvMessagesScreen::handleKey(const KeyEvent& event) {
         if (_selectedIdx > 0) {
             int prev = _selectedIdx;
             _selectedIdx--;
-            updateSelection(prev, _selectedIdx);
+            syncVisibleRows();
         }
         return true;
     }
@@ -284,7 +326,7 @@ bool LvMessagesScreen::handleKey(const KeyEvent& event) {
         if (_selectedIdx < count - 1) {
             int prev = _selectedIdx;
             _selectedIdx++;
-            updateSelection(prev, _selectedIdx);
+            syncVisibleRows();
         }
         return true;
     }

@@ -32,13 +32,16 @@ public:
     void setSTACredentials(const char* ssid, const char* password);
     bool isSTAConnected() const;
 
-    // WiFi scanner
+    // WiFi scanner (async: call startScan, poll with getScanResults)
     struct ScanResult {
         String ssid;
         int rssi;
         bool encrypted;
     };
     static std::vector<ScanResult> scanNetworks(int maxResults = 15);
+    static void startAsyncScan();
+    static bool isScanComplete();
+    static std::vector<ScanResult> getScanResults(int maxResults = 15);
 
 protected:
     virtual void send_outgoing(const RNS::Bytes& data) override;
